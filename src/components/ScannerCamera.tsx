@@ -194,7 +194,7 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
     cvStatus === "error" || cameraStatus === "denied" || cameraStatus === "unsupported";
 
   return (
-    <div className="relative flex-1 flex flex-col bg-void">
+    <div className="relative flex-1 flex flex-col bg-camera-bg">
       {/* Flux vidéo caché — sert uniquement de source pour le canvas de prévisualisation */}
       <video
         ref={videoRef}
@@ -211,24 +211,24 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
         />
 
         {isLoading && !hasBlockingError && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-void">
-            <div className="h-8 w-8 rounded-full border-2 border-line border-t-accent animate-spin" />
-            <p className="font-mono text-xs text-ink-dim tracking-wide">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-camera-bg">
+            <div className="h-8 w-8 rounded-full border-2 border-camera-line border-t-accent animate-spin" />
+            <p className="text-xs font-medium text-camera-ink-dim tracking-wide">
               {cvStatus !== "ready" ? "CHARGEMENT DU MOTEUR DE SCAN…" : "ACCÈS CAMÉRA…"}
             </p>
           </div>
         )}
 
         {hasBlockingError && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-void px-8 text-center">
-            <p className="text-ink font-semibold">Oups.</p>
-            <p className="text-sm text-ink-dim">{cameraErrorMsg ?? cvError}</p>
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-camera-bg px-8 text-center">
+            <p className="text-camera-ink font-semibold">Oups.</p>
+            <p className="text-sm text-camera-ink-dim">{cameraErrorMsg ?? cvError}</p>
           </div>
         )}
       </div>
 
       {captureNotice && (
-        <div className="mx-6 mb-3 rounded-xl border border-line bg-surface px-4 py-2 text-center text-sm text-ink-dim">
+        <div className="mx-6 mb-3 rounded-xl border border-camera-line bg-camera-surface px-4 py-2 text-center text-sm text-camera-ink-dim">
           {captureNotice}
         </div>
       )}
@@ -238,7 +238,7 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
           onClick={handleCapture}
           disabled={isLoading || hasBlockingError || capturing}
           aria-label="Capturer le document"
-          className="relative h-20 w-20 rounded-full border-4 border-ink/80 bg-accent disabled:opacity-30 disabled:cursor-not-allowed active:scale-95 transition-transform"
+          className="relative h-20 w-20 rounded-full border-4 border-camera-ink/80 bg-accent disabled:opacity-30 disabled:cursor-not-allowed active:scale-95 transition-transform"
         >
           {capturing && (
             <span className="absolute inset-0 flex items-center justify-center">
@@ -249,4 +249,4 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
       </div>
     </div>
   );
-}
+    }
