@@ -47,13 +47,13 @@ export default function ReviewOverlay({ rawDataUrl, onConfirm, onRetake }: Revie
   }, [rawDataUrl, filter]);
 
   return (
-    <div className="absolute inset-0 z-20 flex flex-col bg-void">
+    <div className="absolute inset-0 z-20 flex flex-col bg-page">
       <div className="relative flex-1 flex items-center justify-center overflow-hidden p-4">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={previewUrl}
           alt="Page scannée"
-          className="max-h-full max-w-full rounded-xl border border-line object-contain"
+          className="max-h-full max-w-full rounded-xl border border-line object-contain shadow-sm"
           style={{ opacity: rendering ? 0.6 : 1, transition: "opacity 120ms" }}
         />
       </div>
@@ -66,7 +66,7 @@ export default function ReviewOverlay({ rawDataUrl, onConfirm, onRetake }: Revie
             className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
               filter === f.id
                 ? "bg-accent text-accent-ink"
-                : "bg-surface text-ink-dim border border-line"
+                : "border border-line bg-card text-ink-dim"
             }`}
           >
             {f.label}
@@ -77,7 +77,7 @@ export default function ReviewOverlay({ rawDataUrl, onConfirm, onRetake }: Revie
       <div className="flex gap-3 px-6 pb-10">
         <button
           onClick={onRetake}
-          className="flex-1 rounded-2xl border border-line bg-surface py-4 text-sm font-semibold text-ink"
+          className="flex-1 rounded-2xl border border-line bg-card py-4 text-sm font-semibold text-ink"
         >
           Reprendre
         </button>
@@ -90,4 +90,4 @@ export default function ReviewOverlay({ rawDataUrl, onConfirm, onRetake }: Revie
       </div>
     </div>
   );
-}
+            }
