@@ -1,6 +1,18 @@
 "use client";
 
+import { useState } from "react";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import { SortableContext, rectSortingStrategy } from "@dnd-kit/sortable";
 import { useScanStore } from "@/lib/store";
+import SortablePageThumb from "./SortablePageThumb";
+import { buildPdfFromPages, downloadPdfBytes, generatePdfFilename } from "@/lib/pdf-export";
 
 interface PageDrawerProps {
   open: boolean;
@@ -9,19 +21,60 @@ interface PageDrawerProps {
 
 export default function PageDrawer({ open, onClose }: PageDrawerProps) {
   const pages = useScanStore((s) => s.pages);
-  const removePage = useScanStore((s) => s.removePage);
+  const setPageOrder = useScanStore((s) => s.setPageOrder);
+
+  const [exporting, setExporting] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  // distance de 8px avant qu'un glisser ne s'active : évite qu'un simple tap
+  // (ex: sur le bouton supprimer) ne déclenche un drag par erreur.
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 8 },
+    })
+  );
 
   if (!open) return null;
 
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const ids = pages.map((p) => p.id);
+    const oldIndex = ids.indexOf(String(active.id));
+    const newIndex = ids.indexOf(String(over.id));
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const reordered = [...ids];
+    reordered.splice(oldIndex, 1);
+    reordered.splice(newIndex, 0, String(active.id));
+    setPageOrder(reordered);
+  };
+
+  const handleExport = async () => {
+    if (pages.length === 0 || exporting) return;
+    setExporting(true);
+    setExportError(null);
+    setProgress({ done: 0, total: pages.length });
+    try {
+      const bytes = await buildPdfFromPages(pages, (done, total) =>
+        setProgress({ done, total })
+      );
+      downloadPdfBytes(bytes, generatePdfFilename());
+    } catch {
+      setExportError("L'export a échoué. Réessaie.");
+    } finally {
+      setExporting(false);
+      setProgress(null);
+    }
+  };
+
   return (
     <div className="absolute inset-0 z-30 flex flex-col justify-end bg-black/60">
-      <button
-        className="absolute inset-0"
-        aria-label="Fermer"
-        onClick={onClose}
-      />
+      <button className="absolute inset-0" aria-label="Fermer" onClick={onClose} />
 
-      <div className="relative z-10 max-h-[75vh] rounded-t-3xl border-t border-line bg-surface pb-8">
+      <div className="relative z-10 flex max-h-[80vh] flex-col rounded-t-3xl border-t border-line bg-surface pb-6">
         <div className="mx-auto mt-3 h-1 w-10 rounded-full bg-line" />
 
         <div className="flex items-center justify-between px-6 pt-4">
@@ -38,33 +91,44 @@ export default function PageDrawer({ open, onClose }: PageDrawerProps) {
             Aucune page pour l&apos;instant. Scanne ton premier document.
           </p>
         ) : (
-          <div className="grid grid-cols-3 gap-3 overflow-y-auto px-6 pt-4">
-            {pages.map((page, index) => (
-              <div key={page.id} className="relative">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={page.rawDataUrl}
-                  alt={`Page ${index + 1}`}
-                  className="aspect-[3/4] w-full rounded-lg border border-line object-cover"
-                />
-                <span className="absolute left-1.5 top-1.5 rounded-full bg-void/80 px-2 py-0.5 font-mono text-[10px] text-ink">
-                  {index + 1}
-                </span>
-                <button
-                  onClick={() => removePage(page.id)}
-                  aria-label={`Supprimer la page ${index + 1}`}
-                  className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-void/80 text-xs text-ink"
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+          <>
+            <p className="px-6 pb-2 pt-3 text-center font-mono text-[11px] text-ink-dim">
+              MAINTIENS ET GLISSE POUR RÉORDONNER
+            </p>
 
-        <p className="px-6 pt-6 text-center font-mono text-[11px] text-ink-dim">
-          FUSION · RÉORDONNER · EXPORT PDF — ÉTAPE 2
-        </p>
+            <div className="overflow-y-auto px-6">
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
+              >
+                <SortableContext items={pages.map((p) => p.id)} strategy={rectSortingStrategy}>
+                  <div className="grid grid-cols-3 gap-3 pb-4">
+                    {pages.map((page, index) => (
+                      <SortablePageThumb key={page.id} page={page} index={index} />
+                    ))}
+                  </div>
+                </SortableContext>
+              </DndContext>
+            </div>
+
+            {exportError && (
+              <p className="px-6 pb-2 text-center text-sm text-red-400">{exportError}</p>
+            )}
+
+            <div className="px-6 pt-2">
+              <button
+                onClick={handleExport}
+                disabled={exporting}
+                className="w-full rounded-2xl bg-accent py-4 text-sm font-bold text-accent-ink disabled:opacity-50"
+              >
+                {exporting
+                  ? `Fusion en cours… ${progress ? `${progress.done}/${progress.total}` : ""}`
+                  : `Fusionner en PDF (${pages.length} page${pages.length > 1 ? "s" : ""})`}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
