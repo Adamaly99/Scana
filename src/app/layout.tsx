@@ -1,26 +1,20 @@
 import type { Metadata, Viewport } from "next";
-import { Manrope, JetBrains_Mono } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
 
-const manrope = Manrope({
-  variable: "--font-manrope",
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
-  weight: ["500", "700", "800"],
-});
-
-const jetbrainsMono = JetBrains_Mono({
-  variable: "--font-jetbrains",
-  subsets: ["latin"],
-  weight: ["400", "600"],
+  weight: ["400", "500", "600", "700", "800"],
 });
 
 export const metadata: Metadata = {
-  title: "ScanPro — Scanner & Éditeur PDF",
-  description: "Scanne, fusionne et exporte tes documents. Sans compte, sans cloud.",
+  title: "Scana — Scanner & Éditeur PDF",
+  description: "Scana transforme chaque document en quelque chose de propre, organisé et prêt à partager.",
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0b0d0f",
+  themeColor: "#faf7f0",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
@@ -34,11 +28,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="fr"
-      className={`${manrope.variable} ${jetbrainsMono.variable} h-full antialiased`}
-    >
-      <body className="min-h-full flex flex-col bg-void text-ink font-display">
+    <html lang="fr" className={`${inter.variable} h-full antialiased`}>
+      <body className="min-h-full flex flex-col bg-page text-ink font-display">
         {children}
       </body>
     </html>
