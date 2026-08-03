@@ -1,39 +1,64 @@
 @import "tailwindcss";
 
 :root {
-  --bg-void: #0b0d0f;
-  --bg-surface: #14171a;
-  --bg-raised: #1c2024;
-  --line: #2a2f34;
-  --ink: #f4f2ed;
-  --ink-dim: #9aa0a6;
-  --accent: #ff6a2c;
-  --accent-ink: #1a0900;
-  --ok: #4ade80;
+  /* Fond app (clair, chaleureux) */
+  --bg-page: #faf7f0;
+  --bg-card: #ffffff;
+  --bg-raised: #f3f1ea;
+  --line: #e5e7eb;
+
+  /* Texte */
+  --ink: #111827;
+  --ink-dim: #687280;
+
+  /* Marque */
+  --accent: #2563eb;
+  --accent-ink: #ffffff;
+
+  /* États */
+  --success: #16a34a;
+  --warning: #d97706;
+  --danger: #dc2626;
+
+  /* L'écran caméra reste sombre (convention universelle des apps photo,
+     et c'est ce que montre la maquette même dans un shell clair) */
+  --camera-bg: #0b0d0f;
+  --camera-surface: #14171a;
+  --camera-line: #2a2f34;
+  --camera-ink: #f4f2ed;
+  --camera-ink-dim: #9aa0a6;
 }
 
 @theme inline {
-  --color-void: var(--bg-void);
-  --color-surface: var(--bg-surface);
+  --color-page: var(--bg-page);
+  --color-card: var(--bg-card);
   --color-raised: var(--bg-raised);
   --color-line: var(--line);
   --color-ink: var(--ink);
   --color-ink-dim: var(--ink-dim);
   --color-accent: var(--accent);
   --color-accent-ink: var(--accent-ink);
-  --color-ok: var(--ok);
-  --font-display: var(--font-manrope);
-  --font-mono: var(--font-jetbrains);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+
+  --color-camera-bg: var(--camera-bg);
+  --color-camera-surface: var(--camera-surface);
+  --color-camera-line: var(--camera-line);
+  --color-camera-ink: var(--camera-ink);
+  --color-camera-ink-dim: var(--camera-ink-dim);
+
+  --font-display: var(--font-inter);
 }
 
 html {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 body {
-  background: var(--bg-void);
+  background: var(--bg-page);
   color: var(--ink);
-  font-family: var(--font-manrope), system-ui, sans-serif;
+  font-family: var(--font-inter), system-ui, sans-serif;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior: none;
 }
