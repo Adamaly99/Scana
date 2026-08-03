@@ -11,4 +11,4 @@ export const PREVIEW_MAX_WIDTH = 640;
 /** Intervalle entre deux détections de document sur le flux caméra (ms) */
 export const DETECTION_INTERVAL_MS = 250;
 
-export const ACCENT_COLOR = "#ff6a2c";
+export const ACCENT_COLOR = "#2563eb";
