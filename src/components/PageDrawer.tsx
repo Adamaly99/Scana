@@ -27,8 +27,6 @@ export default function PageDrawer({ open, onClose }: PageDrawerProps) {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
-  // distance de 8px avant qu'un glisser ne s'active : évite qu'un simple tap
-  // (ex: sur le bouton supprimer) ne déclenche un drag par erreur.
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 8 },
@@ -71,10 +69,10 @@ export default function PageDrawer({ open, onClose }: PageDrawerProps) {
   };
 
   return (
-    <div className="absolute inset-0 z-30 flex flex-col justify-end bg-black/60">
+    <div className="absolute inset-0 z-30 flex flex-col justify-end bg-black/50">
       <button className="absolute inset-0" aria-label="Fermer" onClick={onClose} />
 
-      <div className="relative z-10 flex max-h-[80vh] flex-col rounded-t-3xl border-t border-line bg-surface pb-6">
+      <div className="relative z-10 flex max-h-[80vh] flex-col rounded-t-3xl border-t border-line bg-card pb-6 shadow-2xl">
         <div className="mx-auto mt-3 h-1 w-10 rounded-full bg-line" />
 
         <div className="flex items-center justify-between px-6 pt-4">
@@ -92,7 +90,7 @@ export default function PageDrawer({ open, onClose }: PageDrawerProps) {
           </p>
         ) : (
           <>
-            <p className="px-6 pb-2 pt-3 text-center font-mono text-[11px] text-ink-dim">
+            <p className="px-6 pb-2 pt-3 text-center text-[11px] font-medium text-ink-dim">
               MAINTIENS ET GLISSE POUR RÉORDONNER
             </p>
 
@@ -113,7 +111,7 @@ export default function PageDrawer({ open, onClose }: PageDrawerProps) {
             </div>
 
             {exportError && (
-              <p className="px-6 pb-2 text-center text-sm text-red-400">{exportError}</p>
+              <p className="px-6 pb-2 text-center text-sm text-danger">{exportError}</p>
             )}
 
             <div className="px-6 pt-2">
@@ -132,4 +130,4 @@ export default function PageDrawer({ open, onClose }: PageDrawerProps) {
       </div>
     </div>
   );
-}
+                   }
