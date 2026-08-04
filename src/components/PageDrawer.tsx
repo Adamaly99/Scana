@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   DndContext,
   closestCenter,
@@ -19,14 +20,37 @@ interface PageDrawerProps {
   onClose: () => void;
 }
 
+function defaultDocName(): string {
+  const formatted = new Date().toLocaleDateString("fr-FR", { day: "numeric", month: "long" });
+  return `Scan du ${formatted}`;
+}
+
 export default function PageDrawer({ open, onClose }: PageDrawerProps) {
+  const router = useRouter();
   const pages = useScanStore((s) => s.pages);
   const setPageOrder = useScanStore((s) => s.setPageOrder);
+  const saveCurrentAsDocument = useScanStore((s) => s.saveCurrentAsDocument);
 
+  const [docName, setDocName] = useState(defaultDocName);
   const [exporting, setExporting] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
+  // Régénère un nom par défaut à chaque ouverture (pas à chaque frappe de l'utilisateur).
+  // Différé via microtask pour ne jamais appeler setState de façon synchrone dans l'effet.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    Promise.resolve().then(() => {
+      if (!cancelled) setDocName(defaultDocName());
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  // distance de 8px avant qu'un glisser ne s'active : évite qu'un simple tap
+  // (ex: sur le bouton supprimer) ne déclenche un drag par erreur.
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 8 },
@@ -60,6 +84,9 @@ export default function PageDrawer({ open, onClose }: PageDrawerProps) {
         setProgress({ done, total })
       );
       downloadPdfBytes(bytes, generatePdfFilename());
+      saveCurrentAsDocument(docName);
+      onClose();
+      router.push("/");
     } catch {
       setExportError("L'export a échoué. Réessaie.");
     } finally {
@@ -72,7 +99,7 @@ export default function PageDrawer({ open, onClose }: PageDrawerProps) {
     <div className="absolute inset-0 z-30 flex flex-col justify-end bg-black/50">
       <button className="absolute inset-0" aria-label="Fermer" onClick={onClose} />
 
-      <div className="relative z-10 flex max-h-[80vh] flex-col rounded-t-3xl border-t border-line bg-card pb-6 shadow-2xl">
+      <div className="relative z-10 flex max-h-[85vh] flex-col rounded-t-3xl border-t border-line bg-card pb-6 shadow-2xl">
         <div className="mx-auto mt-3 h-1 w-10 rounded-full bg-line" />
 
         <div className="flex items-center justify-between px-6 pt-4">
@@ -110,19 +137,32 @@ export default function PageDrawer({ open, onClose }: PageDrawerProps) {
               </DndContext>
             </div>
 
+            <div className="px-6 pt-2">
+              <label className="mb-1.5 block text-xs font-medium text-ink-dim">
+                Nom du document
+              </label>
+              <input
+                type="text"
+                value={docName}
+                onChange={(e) => setDocName(e.target.value)}
+                placeholder="Nom du document"
+                className="w-full rounded-xl border border-line bg-page px-4 py-3 text-sm text-ink outline-none focus:border-accent"
+              />
+            </div>
+
             {exportError && (
-              <p className="px-6 pb-2 text-center text-sm text-danger">{exportError}</p>
+              <p className="px-6 pb-2 pt-2 text-center text-sm text-danger">{exportError}</p>
             )}
 
-            <div className="px-6 pt-2">
+            <div className="px-6 pt-3">
               <button
                 onClick={handleExport}
                 disabled={exporting}
                 className="w-full rounded-2xl bg-accent py-4 text-sm font-bold text-accent-ink disabled:opacity-50"
               >
                 {exporting
-                  ? `Fusion en cours… ${progress ? `${progress.done}/${progress.total}` : ""}`
-                  : `Fusionner en PDF (${pages.length} page${pages.length > 1 ? "s" : ""})`}
+                  ? `Enregistrement… ${progress ? `${progress.done}/${progress.total}` : ""}`
+                  : `Enregistrer le document (${pages.length} page${pages.length > 1 ? "s" : ""})`}
               </button>
             </div>
           </>
@@ -130,4 +170,4 @@ export default function PageDrawer({ open, onClose }: PageDrawerProps) {
       </div>
     </div>
   );
-                   }
+}
