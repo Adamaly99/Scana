@@ -1,5 +1,5 @@
 import { PDFDocument } from "pdf-lib";
-import type { ScannedPage } from "./store";
+import type { ScannedPage, ScanDocument } from "./store";
 import { applyFilterToDataUrl } from "./filters";
 
 // A4 en points PDF (1pt = 1/72 pouce). Format standard, cohérent avec la
@@ -82,4 +82,20 @@ export function generatePdfFilename(): string {
   const date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
   const time = `${pad(now.getHours())}${pad(now.getMinutes())}`;
   return `scan-${date}-${time}.pdf`;
-  }
+}
+
+/** Transforme un nom de document en nom de fichier sûr (minuscules, tirets). */
+export function sanitizeFilename(name: string): string {
+  const cleaned = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return cleaned || "document";
+}
+
+/** Reconstruit le PDF d'un document sauvegardé et le télécharge, nommé d'après le document. */
+export async function downloadDocumentPdf(document: ScanDocument): Promise<void> {
+  const bytes = await buildPdfFromPages(document.pages);
+  downloadPdfBytes(bytes, `${sanitizeFilename(document.name)}.pdf`);
+}
