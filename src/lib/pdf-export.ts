@@ -1,6 +1,7 @@
 import { PDFDocument } from "pdf-lib";
-import type { ScannedPage, ScanDocument } from "./store";
+import type { ScannedPage } from "./store";
 import { applyFilterToDataUrl } from "./filters";
+import { downloadBlob } from "./share";
 
 // A4 en points PDF (1pt = 1/72 pouce). Format standard, cohérent avec la
 // résolution de sortie du scan (OUTPUT_WIDTH/OUTPUT_HEIGHT dans constants.ts).
@@ -53,26 +54,21 @@ export async function buildPdfFromPages(
   return pdfDoc.save();
 }
 
-/** Déclenche le téléchargement du PDF généré. */
-export function downloadPdfBytes(bytes: Uint8Array, filename: string): void {
-  // pdf-lib type son retour en Uint8Array<ArrayBufferLike> (inclut SharedArrayBuffer
-  // en théorie), alors que Blob exige un vrai ArrayBuffer. On extrait une copie
-  // précise (respecte byteOffset/byteLength) pour rester correct même si bytes
-  // est une vue partielle — puis on affirme le type, sûr ici car pdf-lib.save()
-  // ne produit jamais de SharedArrayBuffer en pratique.
+/**
+ * Convertit un Uint8Array (ex: sortie de pdf-lib) en Blob. Voir le commentaire dans
+ * downloadPdfBytes pour le pourquoi du slice + cast ArrayBuffer.
+ */
+export function uint8ArrayToBlob(bytes: Uint8Array, mimeType: string): Blob {
   const arrayBuffer = bytes.buffer.slice(
     bytes.byteOffset,
     bytes.byteOffset + bytes.byteLength
   ) as ArrayBuffer;
-  const blob = new Blob([arrayBuffer], { type: "application/pdf" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  return new Blob([arrayBuffer], { type: mimeType });
+}
+
+/** Déclenche le téléchargement du PDF généré. */
+export function downloadPdfBytes(bytes: Uint8Array, filename: string): void {
+  downloadBlob(uint8ArrayToBlob(bytes, "application/pdf"), filename);
 }
 
 /** Nom de fichier du type scan-2026-08-02-2114.pdf */
@@ -92,10 +88,4 @@ export function sanitizeFilename(name: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return cleaned || "document";
-}
-
-/** Reconstruit le PDF d'un document sauvegardé et le télécharge, nommé d'après le document. */
-export async function downloadDocumentPdf(document: ScanDocument): Promise<void> {
-  const bytes = await buildPdfFromPages(document.pages);
-  downloadPdfBytes(bytes, `${sanitizeFilename(document.name)}.pdf`);
-}
+    }
