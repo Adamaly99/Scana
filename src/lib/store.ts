@@ -41,6 +41,7 @@ interface ScanStore {
   saveCurrentAsDocument: (name: string) => string;
   deleteDocument: (id: string) => void;
   renameDocument: (id: string, name: string) => void;
+  setDocumentPageFilter: (documentId: string, pageId: string, filter: FilterType) => void;
 
   setHasHydrated: (value: boolean) => void;
 }
@@ -123,6 +124,18 @@ export const useScanStore = create<ScanStore>()(
         set((state) => ({
           documents: state.documents.map((d) =>
             d.id === id ? { ...d, name: name.trim() || d.name } : d
+          ),
+        })),
+
+      setDocumentPageFilter: (documentId, pageId, filter) =>
+        set((state) => ({
+          documents: state.documents.map((d) =>
+            d.id !== documentId
+              ? d
+              : {
+                  ...d,
+                  pages: d.pages.map((p) => (p.id === pageId ? { ...p, filter } : p)),
+                }
           ),
         })),
 
