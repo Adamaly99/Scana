@@ -1,9 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
 import { Trash2 } from "lucide-react";
 import type { ScanDocument } from "@/lib/store";
-import { downloadDocumentPdf } from "@/lib/pdf-export";
 import { formatDate } from "@/lib/format";
 
 interface DocumentCardProps {
@@ -12,27 +11,9 @@ interface DocumentCardProps {
 }
 
 export default function DocumentCard({ document, onDelete }: DocumentCardProps) {
-  const [downloading, setDownloading] = useState(false);
-
-  const handlePress = async () => {
-    if (downloading) return;
-    setDownloading(true);
-    try {
-      await downloadDocumentPdf(document);
-    } catch {
-      // Échec silencieux : l'utilisateur peut retenter, pas bloquant.
-    } finally {
-      setDownloading(false);
-    }
-  };
-
   return (
     <div className="flex items-center gap-1 rounded-2xl border border-line bg-card p-3">
-      <button
-        onClick={handlePress}
-        disabled={downloading}
-        className="flex flex-1 items-center gap-3 text-left disabled:opacity-60"
-      >
+      <Link href={`/documents/${document.id}`} className="flex flex-1 items-center gap-3 text-left">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={document.pages[0]?.rawDataUrl}
@@ -47,9 +28,9 @@ export default function DocumentCard({ document, onDelete }: DocumentCardProps) 
           </span>
         </span>
         <span className="shrink-0 rounded-md bg-raised px-2 py-1 text-[10px] font-bold text-ink-dim">
-          {downloading ? "…" : "PDF"}
+          PDF
         </span>
-      </button>
+      </Link>
 
       {onDelete && (
         <button
