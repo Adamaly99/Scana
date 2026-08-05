@@ -3,11 +3,11 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ChevronLeft, ChevronRight, Trash2, Pencil, Check } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Trash2, Pencil, Check, Share2 } from "lucide-react";
 import { useScanStore, type FilterType } from "@/lib/store";
-import { downloadDocumentPdf } from "@/lib/pdf-export";
 import { applyFilterToDataUrl } from "@/lib/filters";
 import { formatDate } from "@/lib/format";
+import ShareSheet from "@/components/ShareSheet";
 
 const FILTERS: { id: FilterType; label: string }[] = [
   { id: "color", label: "Couleur" },
@@ -29,7 +29,7 @@ export default function DocumentDetailPage() {
   const [pageIndex, setPageIndex] = useState(0);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [renderingPreview, setRenderingPreview] = useState(false);
-  const [downloading, setDownloading] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [nameDraft, setNameDraft] = useState(document?.name ?? "");
 
@@ -69,18 +69,6 @@ export default function DocumentDetailPage() {
       </div>
     );
   }
-
-  const handleDownload = async () => {
-    if (downloading) return;
-    setDownloading(true);
-    try {
-      await downloadDocumentPdf(document);
-    } catch {
-      // silencieux, l'utilisateur peut retenter
-    } finally {
-      setDownloading(false);
-    }
-  };
 
   const handleDelete = () => {
     if (window.confirm(`Supprimer "${document.name}" ? Cette action est définitive.`)) {
@@ -209,13 +197,20 @@ export default function DocumentDetailPage() {
 
       <div className="px-6 pb-8">
         <button
-          onClick={handleDownload}
-          disabled={downloading}
-          className="w-full rounded-2xl bg-accent py-4 text-sm font-bold text-accent-ink disabled:opacity-60"
+          onClick={() => setShareOpen(true)}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-accent py-4 text-sm font-bold text-accent-ink"
         >
-          {downloading ? "Préparation…" : "Télécharger le PDF"}
+          <Share2 size={16} />
+          Partager
         </button>
       </div>
+
+      <ShareSheet
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        document={document}
+        currentPage={currentPage}
+      />
     </div>
   );
-    }
+                           }
