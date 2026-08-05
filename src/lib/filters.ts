@@ -85,18 +85,21 @@ function toBlackAndWhite(data: Uint8ClampedArray): void {
 }
 
 /**
- * Applique un filtre à une image source et renvoie une nouvelle dataURL (JPEG qualité 0.92).
+ * Applique un filtre à une image source et renvoie une nouvelle dataURL.
  * Ne modifie jamais l'image d'origine — le filtre est toujours recalculé depuis rawDataUrl.
+ * Format JPEG par défaut (qualité 0.92) ; PNG disponible pour l'export image.
  */
 export async function applyFilterToDataUrl(
   sourceDataUrl: string,
-  filter: FilterType
+  filter: FilterType,
+  format: "jpeg" | "png" = "jpeg"
 ): Promise<string> {
   const img = await loadImage(sourceDataUrl);
   const canvas = canvasFromImage(img);
+  const mime = format === "png" ? "image/png" : "image/jpeg";
 
   if (filter === "color") {
-    return canvas.toDataURL("image/jpeg", 0.92);
+    return format === "png" ? canvas.toDataURL(mime) : canvas.toDataURL(mime, 0.92);
   }
 
   const ctx = canvas.getContext("2d");
@@ -110,5 +113,5 @@ export async function applyFilterToDataUrl(
   }
 
   ctx.putImageData(imageData, 0, 0);
-  return canvas.toDataURL("image/jpeg", 0.92);
-}
+  return format === "png" ? canvas.toDataURL(mime) : canvas.toDataURL(mime, 0.92);
+  }
