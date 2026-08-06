@@ -9,6 +9,7 @@ import {
   OUTPUT_WIDTH,
   PREVIEW_MAX_WIDTH,
 } from "@/lib/constants";
+import { enhanceDocument } from "@/lib/enhance";
 
 type CameraStatus = "requesting" | "granted" | "denied" | "unsupported";
 
@@ -162,7 +163,7 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
     setCaptureNotice(null);
 
     // Petite pause pour laisser l'UI afficher l'état "capturing" avant le calcul (peut prendre qq centaines de ms)
-    requestAnimationFrame(() => {
+    requestAnimationFrame(async () => {
       try {
         const fullCanvas = document.createElement("canvas");
         fullCanvas.width = video.videoWidth;
@@ -179,8 +180,10 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
           return;
         }
 
-        const dataUrl = extracted.toDataURL("image/jpeg", 0.92);
-        onCapture(dataUrl, OUTPUT_WIDTH, OUTPUT_HEIGHT);
+        const rawDataUrl = extracted.toDataURL("image/jpeg", 0.92);
+        // Améliorer automatiquement la qualité du scan (débruite + contraste)
+        const enhancedDataUrl = await enhanceDocument(rawDataUrl);
+        onCapture(enhancedDataUrl, OUTPUT_WIDTH, OUTPUT_HEIGHT);
       } catch {
         setCaptureNotice("La capture a échoué. Réessaie.");
       } finally {
@@ -249,4 +252,4 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
       </div>
     </div>
   );
-    }
+                                      }
