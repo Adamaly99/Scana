@@ -9,7 +9,7 @@ import {
   OUTPUT_WIDTH,
   PREVIEW_MAX_WIDTH,
 } from "@/lib/constants";
-import { enhanceDocument } from "@/lib/enhance";
+import { highlightPaperStable } from "@/lib/paper-detect";
 
 type CameraStatus = "requesting" | "granted" | "denied" | "unsupported";
 
@@ -27,6 +27,7 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const scannerRef = useRef<any>(null);
   const detectionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const detectionBusyRef = useRef(false);
 
   const [cameraStatus, setCameraStatus] = useState<CameraStatus>("requesting");
   const [cameraErrorMsg, setCameraErrorMsg] = useState<string | null>(null);
@@ -115,6 +116,10 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
     if (!video || !previewCanvas) return;
 
     const tick = () => {
+      // Empêche les détections de s'empiler si un appareil est trop lent pour suivre
+      // le rythme des 250ms — c'était la cause probable des formes qui s'affolent.
+      if (detectionBusyRef.current) return;
+
       const scanner = scannerRef.current;
       if (!scanner || video.readyState < video.HAVE_CURRENT_DATA) return;
       if (!video.videoWidth || !video.videoHeight) return;
@@ -133,17 +138,16 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
       if (!workingCtx) return;
       workingCtx.drawImage(video, 0, 0, w, h);
 
+      detectionBusyRef.current = true;
       try {
-        const highlighted = scanner.highlightPaper(working, {
+        highlightPaperStable(scanner, working, previewCanvas, {
           color: ACCENT_COLOR,
           thickness: 4,
         });
-        previewCanvas.width = w;
-        previewCanvas.height = h;
-        const previewCtx = previewCanvas.getContext("2d");
-        previewCtx?.drawImage(highlighted, 0, 0);
       } catch {
         // Une frame ratée ne doit jamais casser la boucle de détection.
+      } finally {
+        detectionBusyRef.current = false;
       }
     };
 
@@ -163,7 +167,7 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
     setCaptureNotice(null);
 
     // Petite pause pour laisser l'UI afficher l'état "capturing" avant le calcul (peut prendre qq centaines de ms)
-    requestAnimationFrame(async () => {
+    requestAnimationFrame(() => {
       try {
         const fullCanvas = document.createElement("canvas");
         fullCanvas.width = video.videoWidth;
@@ -180,10 +184,8 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
           return;
         }
 
-        const rawDataUrl = extracted.toDataURL("image/jpeg", 0.92);
-        // Améliorer automatiquement la qualité du scan (débruite + contraste)
-        const enhancedDataUrl = await enhanceDocument(rawDataUrl);
-        onCapture(enhancedDataUrl, OUTPUT_WIDTH, OUTPUT_HEIGHT);
+        const dataUrl = extracted.toDataURL("image/jpeg", 0.92);
+        onCapture(dataUrl, OUTPUT_WIDTH, OUTPUT_HEIGHT);
       } catch {
         setCaptureNotice("La capture a échoué. Réessaie.");
       } finally {
@@ -252,4 +254,4 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
       </div>
     </div>
   );
-                                      }
+      }
