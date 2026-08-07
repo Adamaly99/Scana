@@ -3,11 +3,12 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ChevronLeft, ChevronRight, Trash2, Pencil, Check, Share2 } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Trash2, Pencil, Check, Share2, ScanText } from "lucide-react";
 import { useScanStore, type FilterType } from "@/lib/store";
 import { applyFilterToDataUrl } from "@/lib/filters";
 import { formatDate } from "@/lib/format";
 import ShareSheet from "@/components/ShareSheet";
+import OcrSheet from "@/components/OcrSheet";
 
 const FILTERS: { id: FilterType; label: string }[] = [
   { id: "color", label: "Couleur" },
@@ -30,6 +31,7 @@ export default function DocumentDetailPage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [renderingPreview, setRenderingPreview] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [ocrOpen, setOcrOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [nameDraft, setNameDraft] = useState(document?.name ?? "");
 
@@ -195,10 +197,17 @@ export default function DocumentDetailPage() {
         ))}
       </div>
 
-      <div className="px-6 pb-8">
+      <div className="flex gap-3 px-6 pb-8">
+        <button
+          onClick={() => setOcrOpen(true)}
+          className="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-line bg-card py-4 text-sm font-semibold text-ink"
+        >
+          <ScanText size={16} />
+          Extraire le texte
+        </button>
         <button
           onClick={() => setShareOpen(true)}
-          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-accent py-4 text-sm font-bold text-accent-ink"
+          className="flex flex-[2] items-center justify-center gap-2 rounded-2xl bg-accent py-4 text-sm font-bold text-accent-ink"
         >
           <Share2 size={16} />
           Partager
@@ -211,6 +220,14 @@ export default function DocumentDetailPage() {
         document={document}
         currentPage={currentPage}
       />
+
+      {currentPage && (
+        <OcrSheet
+          open={ocrOpen}
+          onClose={() => setOcrOpen(false)}
+          imageDataUrl={previewUrl ?? currentPage.rawDataUrl}
+        />
+      )}
     </div>
   );
-                           }
+                                                        }
