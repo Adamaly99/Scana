@@ -83,23 +83,22 @@ export interface HighlightOptions {
 export function highlightPaperStable(
   scanner: JScanifyInstance,
   sourceCanvas: HTMLCanvasElement,
-  destCanvas: HTMLCanvasElement,
+  overlayCanvas: HTMLCanvasElement,
   options: HighlightOptions
 ): boolean {
   const cv = window.cv as unknown as CvNamespace;
   const img = cv.imread(sourceCanvas);
 
-  destCanvas.width = sourceCanvas.width;
-  destCanvas.height = sourceCanvas.height;
-  cv.imshow(destCanvas, img);
-
   const corners = findValidCorners(scanner, cv, img, options.minAreaRatio ?? 0.15);
   img.delete();
 
-  if (!corners) return false;
-
-  const ctx = destCanvas.getContext("2d");
+  const ctx = overlayCanvas.getContext("2d");
   if (!ctx) return false;
+  // On efface le contour précédent — la vidéo elle-même reste visible en dessous,
+  // ce canvas ne sert plus qu'à dessiner le tracé, jamais l'image caméra.
+  ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+  if (!corners) return false;
 
   const { topLeftCorner, topRightCorner, bottomLeftCorner, bottomRightCorner } = corners;
   ctx.strokeStyle = options.color;
