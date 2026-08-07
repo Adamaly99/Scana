@@ -9,7 +9,7 @@ import {
   OUTPUT_WIDTH,
   PREVIEW_MAX_WIDTH,
 } from "@/lib/constants";
-import { highlightPaperStable } from "@/lib/paper-detect";
+import { extractPaperStable, highlightPaperStable } from "@/lib/paper-detect";
 
 type CameraStatus = "requesting" | "granted" | "denied" | "unsupported";
 
@@ -176,7 +176,7 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
         if (!ctx) throw new Error("Canvas indisponible");
         ctx.drawImage(video, 0, 0);
 
-        const extracted = scanner.extractPaper(fullCanvas, OUTPUT_WIDTH, OUTPUT_HEIGHT);
+        const extracted = extractPaperStable(scanner, fullCanvas, OUTPUT_WIDTH, OUTPUT_HEIGHT);
 
         if (!extracted) {
           setCaptureNotice("Aucun document détecté. Rapproche-toi et vérifie l'éclairage.");
@@ -254,4 +254,4 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
       </div>
     </div>
   );
-          }
+      }
