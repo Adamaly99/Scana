@@ -254,4 +254,4 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
       </div>
     </div>
   );
-      }
+          }
