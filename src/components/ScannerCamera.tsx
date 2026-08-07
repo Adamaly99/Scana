@@ -21,7 +21,7 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
   const { status: cvStatus, errorMessage: cvError } = useOpenCv();
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const workingCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -107,13 +107,15 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
     };
   }, [cvStatus]);
 
-  // 3. Boucle de détection live (throttled) — dessine le contour détecté sur le canvas visible
+  // 3. Boucle de détection live (throttled) — dessine juste le contour sur un calque
+  // transparent superposé à la vidéo. La vidéo elle-même reste toujours fluide,
+  // indépendamment du rythme de détection.
   useEffect(() => {
     if (cvStatus !== "ready" || cameraStatus !== "granted") return;
 
     const video = videoRef.current;
-    const previewCanvas = previewCanvasRef.current;
-    if (!video || !previewCanvas) return;
+    const overlayCanvas = overlayCanvasRef.current;
+    if (!video || !overlayCanvas) return;
 
     const tick = () => {
       // Empêche les détections de s'empiler si un appareil est trop lent pour suivre
@@ -138,9 +140,17 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
       if (!workingCtx) return;
       workingCtx.drawImage(video, 0, 0, w, h);
 
+      // Le calque transparent doit avoir la même résolution interne que le canvas
+      // d'analyse pour que les coordonnées du contour tombent au bon endroit —
+      // redimensionner efface le canvas, donc on ne le fait que si ça a changé.
+      if (overlayCanvas.width !== w || overlayCanvas.height !== h) {
+        overlayCanvas.width = w;
+        overlayCanvas.height = h;
+      }
+
       detectionBusyRef.current = true;
       try {
-        highlightPaperStable(scanner, working, previewCanvas, {
+        highlightPaperStable(scanner, working, overlayCanvas, {
           color: ACCENT_COLOR,
           thickness: 4,
         });
@@ -200,20 +210,20 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
 
   return (
     <div className="relative flex-1 flex flex-col bg-camera-bg">
-      {/* Flux vidéo caché — sert uniquement de source pour le canvas de prévisualisation */}
-      <video
-        ref={videoRef}
-        autoPlay
-        muted
-        playsInline
-        className="hidden"
-      />
-
       <div className="relative flex-1 flex items-center justify-center overflow-hidden">
-        <canvas
-          ref={previewCanvasRef}
-          className="max-h-full max-w-full rounded-2xl"
-        />
+        <div className="relative">
+          <video
+            ref={videoRef}
+            autoPlay
+            muted
+            playsInline
+            className="block max-h-full max-w-full rounded-2xl"
+          />
+          <canvas
+            ref={overlayCanvasRef}
+            className="pointer-events-none absolute inset-0 h-full w-full rounded-2xl"
+          />
+        </div>
 
         {isLoading && !hasBlockingError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-camera-bg">
@@ -254,4 +264,4 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
       </div>
     </div>
   );
-      }
+    }
