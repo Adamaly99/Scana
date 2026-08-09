@@ -12,6 +12,7 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, rectSortingStrategy } from "@dnd-kit/sortable";
 import { useScanStore } from "@/lib/store";
+import { JPEG_QUALITY } from "@/lib/constants";
 import SortablePageThumb from "./SortablePageThumb";
 import { buildPdfFromPages, downloadPdfBytes, generatePdfFilename } from "@/lib/pdf-export";
 
@@ -30,6 +31,8 @@ export default function PageDrawer({ open, onClose }: PageDrawerProps) {
   const pages = useScanStore((s) => s.pages);
   const setPageOrder = useScanStore((s) => s.setPageOrder);
   const saveCurrentAsDocument = useScanStore((s) => s.saveCurrentAsDocument);
+  const pageFormat = useScanStore((s) => s.pageFormat);
+  const quality = useScanStore((s) => s.quality);
 
   const [docName, setDocName] = useState(defaultDocName);
   const [exporting, setExporting] = useState(false);
@@ -80,9 +83,11 @@ export default function PageDrawer({ open, onClose }: PageDrawerProps) {
     setExportError(null);
     setProgress({ done: 0, total: pages.length });
     try {
-      const bytes = await buildPdfFromPages(pages, (done, total) =>
-        setProgress({ done, total })
-      );
+      const bytes = await buildPdfFromPages(pages, {
+        onProgress: (done, total) => setProgress({ done, total }),
+        pageFormat,
+        jpegQuality: JPEG_QUALITY[quality],
+      });
       downloadPdfBytes(bytes, generatePdfFilename());
       saveCurrentAsDocument(docName);
       onClose();
