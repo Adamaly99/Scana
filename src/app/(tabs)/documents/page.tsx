@@ -17,9 +17,9 @@ export default function DocumentsPage() {
     return documents.filter((d) => d.name.toLowerCase().includes(q));
   }, [documents, query]);
 
-  const handleDelete = (id: string, name: string) => {
+  const handleDelete = async (id: string, name: string) => {
     if (window.confirm(`Supprimer "${name}" ? Cette action est définitive.`)) {
-      deleteDocument(id);
+      await deleteDocument(id);
     }
   };
 
