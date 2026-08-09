@@ -3,8 +3,11 @@
 import { useState } from "react";
 import { Share2, Download } from "lucide-react";
 import type { ScanDocument, ScannedPage } from "@/lib/store";
+import { useScanStore } from "@/lib/store";
+import { JPEG_QUALITY } from "@/lib/constants";
 import { buildPdfFromPages, sanitizeFilename, uint8ArrayToBlob } from "@/lib/pdf-export";
 import { applyFilterToDataUrl } from "@/lib/filters";
+import { getImageBlob } from "@/lib/image-store";
 import { shareOrDownload, downloadBlob } from "@/lib/share";
 
 type ExportFormat = "pdf" | "jpg" | "png";
@@ -26,12 +29,14 @@ const FORMATS: { id: ExportFormat; label: string; hint: string }[] = [
 async function buildExport(
   document: ScanDocument,
   format: ExportFormat,
-  currentPage: ScannedPage | undefined
+  currentPage: ScannedPage | undefined,
+  pageFormat: "a4" | "letter",
+  jpegQuality: number
 ): Promise<{ blob: Blob; filename: string; mime: string }> {
   const baseName = sanitizeFilename(document.name);
 
   if (format === "pdf") {
-    const bytes = await buildPdfFromPages(document.pages);
+    const bytes = await buildPdfFromPages(document.pages, { pageFormat, jpegQuality });
     return { blob: uint8ArrayToBlob(bytes, "application/pdf"), filename: `${baseName}.pdf`, mime: "application/pdf" };
   }
 
@@ -39,20 +44,33 @@ async function buildExport(
     throw new Error("Aucune page sélectionnée.");
   }
 
-  const mime = format === "jpg" ? "image/jpeg" : "image/png";
-  const dataUrl = await applyFilterToDataUrl(
-    currentPage.rawDataUrl,
-    currentPage.filter,
-    format === "jpg" ? "jpeg" : "png"
-  );
-  const blob = await (await fetch(dataUrl)).blob();
-  return { blob, filename: `${baseName}.${format}`, mime };
+  const rawBlob = await getImageBlob(currentPage.id);
+  if (!rawBlob) {
+    throw new Error("Image introuvable pour cette page.");
+  }
+  const rawObjectUrl = URL.createObjectURL(rawBlob);
+
+  try {
+    const mime = format === "jpg" ? "image/jpeg" : "image/png";
+    const dataUrl = await applyFilterToDataUrl(
+      rawObjectUrl,
+      currentPage.filter,
+      format === "jpg" ? "jpeg" : "png",
+      jpegQuality
+    );
+    const blob = await (await fetch(dataUrl)).blob();
+    return { blob, filename: `${baseName}.${format}`, mime };
+  } finally {
+    URL.revokeObjectURL(rawObjectUrl);
+  }
 }
 
 export default function ShareSheet({ open, onClose, document, currentPage }: ShareSheetProps) {
   const [format, setFormat] = useState<ExportFormat>("pdf");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const pageFormat = useScanStore((s) => s.pageFormat);
+  const quality = useScanStore((s) => s.quality);
 
   if (!open) return null;
 
@@ -61,7 +79,13 @@ export default function ShareSheet({ open, onClose, document, currentPage }: Sha
     setBusy(true);
     setError(null);
     try {
-      const { blob, filename, mime } = await buildExport(document, format, currentPage);
+      const { blob, filename, mime } = await buildExport(
+        document,
+        format,
+        currentPage,
+        pageFormat,
+        JPEG_QUALITY[quality]
+      );
       await shareOrDownload(blob, filename, mime);
       onClose();
     } catch {
@@ -76,7 +100,13 @@ export default function ShareSheet({ open, onClose, document, currentPage }: Sha
     setBusy(true);
     setError(null);
     try {
-      const { blob, filename } = await buildExport(document, format, currentPage);
+      const { blob, filename } = await buildExport(
+        document,
+        format,
+        currentPage,
+        pageFormat,
+        JPEG_QUALITY[quality]
+      );
       downloadBlob(blob, filename);
       onClose();
     } catch {
