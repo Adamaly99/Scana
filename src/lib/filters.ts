@@ -209,7 +209,7 @@ function toBlackAndWhite(data: Uint8ClampedArray): void {
 
 /**
  * Applique un filtre à une image source et renvoie une nouvelle dataURL.
- * Ne modifie jamais l'image d'origine — le filtre est toujours recalculé depuis rawDataUrl.
+ * Ne modifie jamais l'image d'origine — le filtre est toujours recalculé depuis l'image source.
  * Format JPEG par défaut (qualité 0.92) ; PNG disponible pour l'export image.
  *
  * La netteté (sharpen) est TOUJOURS appliquée en premier, quel que soit le filtre —
@@ -221,7 +221,8 @@ function toBlackAndWhite(data: Uint8ClampedArray): void {
 export async function applyFilterToDataUrl(
   sourceDataUrl: string,
   filter: FilterType,
-  format: "jpeg" | "png" = "jpeg"
+  format: "jpeg" | "png" = "jpeg",
+  jpegQuality = 0.92
 ): Promise<string> {
   const img = await loadImage(sourceDataUrl);
   const canvas = canvasFromImage(img);
@@ -243,5 +244,5 @@ export async function applyFilterToDataUrl(
   }
 
   ctx.putImageData(imageData, 0, 0);
-  return format === "png" ? canvas.toDataURL(mime) : canvas.toDataURL(mime, 0.92);
-        }
+  return format === "png" ? canvas.toDataURL(mime) : canvas.toDataURL(mime, jpegQuality);
+}
