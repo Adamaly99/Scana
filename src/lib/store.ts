@@ -1,13 +1,13 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { idbStorage } from "./idb-storage";
+import type { PageFormat, ScanQuality } from "./constants";
+import { dataUrlToBlob, deleteImageBlob, deleteImageBlobs, saveImageBlob } from "./image-store";
 
 export type FilterType = "color" | "gray" | "bw";
 
 export interface ScannedPage {
   id: string;
-  /** Image source de la découpe (avant filtre), format dataURL */
-  rawDataUrl: string;
   filter: FilterType;
   width: number;
   height: number;
@@ -30,16 +30,35 @@ interface ScanStore {
   /** true une fois la lecture depuis IndexedDB terminée (évite d'afficher "0 page" par erreur au premier rendu) */
   hasHydrated: boolean;
 
-  addPage: (page: Omit<ScannedPage, "id" | "createdAt">) => string;
-  removePage: (id: string) => void;
+  /** Réglages de scan — persistés, modifiables depuis l'onglet Outils */
+  quality: ScanQuality;
+  pageFormat: PageFormat;
+  setQuality: (quality: ScanQuality) => void;
+  setPageFormat: (format: PageFormat) => void;
+
+  /**
+   * Ajoute une page : sauvegarde l'image en binaire (Blob) dans IndexedDB,
+   * puis n'ajoute que la métadonnée légère à l'état. Asynchrone car l'écriture
+   * du Blob doit être terminée avant que la page existe côté état.
+   */
+  addPage: (input: {
+    dataUrl: string;
+    filter: FilterType;
+    width: number;
+    height: number;
+  }) => Promise<string>;
+  /** Retire une page du scan en cours et supprime son image binaire associée */
+  removePage: (id: string) => Promise<void>;
   setFilter: (id: string, filter: FilterType) => void;
   reorderPages: (fromIndex: number, toIndex: number) => void;
   setPageOrder: (orderedIds: string[]) => void;
-  clearAll: () => void;
+  /** Vide le scan en cours et supprime toutes les images binaires associées */
+  clearAll: () => Promise<void>;
 
   /** Sauvegarde le scan en cours comme document nommé, puis vide le scan en cours */
   saveCurrentAsDocument: (name: string) => string;
-  deleteDocument: (id: string) => void;
+  /** Supprime un document ET les images binaires de toutes ses pages (pas de fuite de stockage) */
+  deleteDocument: (id: string) => Promise<void>;
   renameDocument: (id: string, name: string) => void;
   setDocumentPageFilter: (documentId: string, pageId: string, filter: FilterType) => void;
 
@@ -52,23 +71,41 @@ function makeId(prefix: string): string {
 
 export const useScanStore = create<ScanStore>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       pages: [],
       documents: [],
       hasHydrated: false,
+      quality: "standard",
+      pageFormat: "a4",
 
-      addPage: (page) => {
+      setQuality: (quality) => set({ quality }),
+      setPageFormat: (pageFormat) => set({ pageFormat }),
+
+      addPage: async (input) => {
         const id = makeId("pg");
+        const blob = await dataUrlToBlob(input.dataUrl);
+        await saveImageBlob(id, blob);
         set((state) => ({
-          pages: [...state.pages, { ...page, id, createdAt: Date.now() }],
+          pages: [
+            ...state.pages,
+            {
+              id,
+              filter: input.filter,
+              width: input.width,
+              height: input.height,
+              createdAt: Date.now(),
+            },
+          ],
         }));
         return id;
       },
 
-      removePage: (id) =>
+      removePage: async (id) => {
+        await deleteImageBlob(id);
         set((state) => ({
           pages: state.pages.filter((p) => p.id !== id),
-        })),
+        }));
+      },
 
       setFilter: (id, filter) =>
         set((state) => ({
@@ -96,7 +133,11 @@ export const useScanStore = create<ScanStore>()(
           return { pages: next };
         }),
 
-      clearAll: () => set({ pages: [] }),
+      clearAll: async () => {
+        const { pages } = get();
+        await deleteImageBlobs(pages.map((p) => p.id));
+        set({ pages: [] });
+      },
 
       saveCurrentAsDocument: (name) => {
         const id = makeId("doc");
@@ -115,10 +156,16 @@ export const useScanStore = create<ScanStore>()(
         return id;
       },
 
-      deleteDocument: (id) =>
+      deleteDocument: async (id) => {
+        const { documents } = get();
+        const doc = documents.find((d) => d.id === id);
+        if (doc) {
+          await deleteImageBlobs(doc.pages.map((p) => p.id));
+        }
         set((state) => ({
           documents: state.documents.filter((d) => d.id !== id),
-        })),
+        }));
+      },
 
       renameDocument: (id, name) =>
         set((state) => ({
@@ -144,7 +191,12 @@ export const useScanStore = create<ScanStore>()(
     {
       name: "scana-store",
       storage: createJSONStorage(() => idbStorage),
-      partialize: (state) => ({ pages: state.pages, documents: state.documents }),
+      partialize: (state) => ({
+        pages: state.pages,
+        documents: state.documents,
+        quality: state.quality,
+        pageFormat: state.pageFormat,
+      }),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);
       },
