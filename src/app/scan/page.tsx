@@ -27,10 +27,10 @@ export default function ScanPage() {
   }, []);
 
   const handleConfirm = useCallback(
-    (filter: FilterType) => {
+    async (filter: FilterType) => {
       if (!pending) return;
-      addPage({
-        rawDataUrl: pending.rawDataUrl,
+      await addPage({
+        dataUrl: pending.rawDataUrl,
         filter,
         width: pending.width,
         height: pending.height,
