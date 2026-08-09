@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ArrowLeft, ChevronLeft, ChevronRight, Trash2, Pencil, Check, Share2, ScanText } from "lucide-react";
 import { useScanStore, type FilterType } from "@/lib/store";
 import { applyFilterToDataUrl } from "@/lib/filters";
+import { getImageBlob } from "@/lib/image-store";
 import { formatDate } from "@/lib/format";
 import ShareSheet from "@/components/ShareSheet";
 import OcrSheet from "@/components/OcrSheet";
@@ -41,19 +42,31 @@ export default function DocumentDetailPage() {
   useEffect(() => {
     if (!currentPage) return;
     let cancelled = false;
+    let rawObjectUrl: string | null = null;
+
     Promise.resolve().then(() => {
       if (!cancelled) setRenderingPreview(true);
     });
-    applyFilterToDataUrl(currentPage.rawDataUrl, currentPage.filter)
+
+    getImageBlob(currentPage.id)
+      .then((blob) => {
+        if (cancelled) return null;
+        if (!blob) throw new Error("Image introuvable pour cette page.");
+        rawObjectUrl = URL.createObjectURL(blob);
+        return applyFilterToDataUrl(rawObjectUrl, currentPage.filter);
+      })
       .then((url) => {
-        if (!cancelled) setPreviewUrl(url);
+        if (!cancelled && url) setPreviewUrl(url);
       })
       .catch(() => {
-        if (!cancelled) setPreviewUrl(currentPage.rawDataUrl);
+        // Cas rare : image binaire manquante/corrompue en IndexedDB — rien à afficher.
+        if (!cancelled) setPreviewUrl(null);
       })
       .finally(() => {
         if (!cancelled) setRenderingPreview(false);
+        if (rawObjectUrl) URL.revokeObjectURL(rawObjectUrl);
       });
+
     return () => {
       cancelled = true;
     };
@@ -72,9 +85,9 @@ export default function DocumentDetailPage() {
     );
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (window.confirm(`Supprimer "${document.name}" ? Cette action est définitive.`)) {
-      deleteDocument(document.id);
+      await deleteDocument(document.id);
       router.push("/documents");
     }
   };
@@ -200,7 +213,8 @@ export default function DocumentDetailPage() {
       <div className="flex gap-3 px-6 pb-8">
         <button
           onClick={() => setOcrOpen(true)}
-          className="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-line bg-card py-4 text-sm font-semibold text-ink"
+          disabled={!previewUrl}
+          className="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-line bg-card py-4 text-sm font-semibold text-ink disabled:opacity-50"
         >
           <ScanText size={16} />
           Extraire le texte
@@ -221,13 +235,9 @@ export default function DocumentDetailPage() {
         currentPage={currentPage}
       />
 
-      {currentPage && (
-        <OcrSheet
-          open={ocrOpen}
-          onClose={() => setOcrOpen(false)}
-          imageDataUrl={previewUrl ?? currentPage.rawDataUrl}
-        />
+      {currentPage && previewUrl && (
+        <OcrSheet open={ocrOpen} onClose={() => setOcrOpen(false)} imageDataUrl={previewUrl} />
       )}
     </div>
   );
-                                                        }
+}
