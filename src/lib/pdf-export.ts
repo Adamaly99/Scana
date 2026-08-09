@@ -1,12 +1,9 @@
 import { PDFDocument } from "pdf-lib";
 import type { ScannedPage } from "./store";
 import { applyFilterToDataUrl } from "./filters";
+import { getImageBlob } from "./image-store";
 import { downloadBlob } from "./share";
-
-// A4 en points PDF (1pt = 1/72 pouce). Format standard, cohérent avec la
-// résolution de sortie du scan (OUTPUT_WIDTH/OUTPUT_HEIGHT dans constants.ts).
-const A4_WIDTH_PT = 595.28;
-const A4_HEIGHT_PT = 841.89;
+import { PAGE_SIZE_PT, type PageFormat } from "./constants";
 
 function dataUrlToUint8Array(dataUrl: string): Uint8Array {
   const base64 = dataUrl.split(",")[1];
@@ -19,33 +16,56 @@ function dataUrlToUint8Array(dataUrl: string): Uint8Array {
   return bytes;
 }
 
+export interface BuildPdfOptions {
+  onProgress?: (done: number, total: number) => void;
+  /** Format de page du PDF final. Par défaut A4. */
+  pageFormat?: PageFormat;
+  /** Qualité JPEG de ré-encodage de chaque page (0-1). Par défaut 0.92. */
+  jpegQuality?: number;
+}
+
 /**
- * Fusionne toutes les pages (dans l'ordre fourni) en un seul PDF A4.
+ * Fusionne toutes les pages (dans l'ordre fourni) en un seul PDF.
  * Le filtre de chaque page est appliqué au moment de l'export (jamais stocké
  * à l'avance), donc le PDF reflète toujours le dernier choix de filtre.
  */
 export async function buildPdfFromPages(
   pages: ScannedPage[],
-  onProgress?: (done: number, total: number) => void
+  options: BuildPdfOptions = {}
 ): Promise<Uint8Array> {
+  const { onProgress, pageFormat = "a4", jpegQuality = 0.92 } = options;
+
   if (pages.length === 0) {
     throw new Error("Aucune page à exporter.");
   }
 
+  const { width: pageWidthPt, height: pageHeightPt } = PAGE_SIZE_PT[pageFormat];
   const pdfDoc = await PDFDocument.create();
 
   for (let i = 0; i < pages.length; i++) {
     const page = pages[i];
-    const filteredDataUrl = await applyFilterToDataUrl(page.rawDataUrl, page.filter);
+    const rawBlob = await getImageBlob(page.id);
+    if (!rawBlob) {
+      throw new Error(`Image manquante pour la page ${i + 1}.`);
+    }
+    const rawObjectUrl = URL.createObjectURL(rawBlob);
+
+    let filteredDataUrl: string;
+    try {
+      filteredDataUrl = await applyFilterToDataUrl(rawObjectUrl, page.filter, "jpeg", jpegQuality);
+    } finally {
+      URL.revokeObjectURL(rawObjectUrl);
+    }
+
     const imageBytes = dataUrlToUint8Array(filteredDataUrl);
     const jpgImage = await pdfDoc.embedJpg(imageBytes);
 
-    const pdfPage = pdfDoc.addPage([A4_WIDTH_PT, A4_HEIGHT_PT]);
+    const pdfPage = pdfDoc.addPage([pageWidthPt, pageHeightPt]);
     pdfPage.drawImage(jpgImage, {
       x: 0,
       y: 0,
-      width: A4_WIDTH_PT,
-      height: A4_HEIGHT_PT,
+      width: pageWidthPt,
+      height: pageHeightPt,
     });
 
     onProgress?.(i + 1, pages.length);
@@ -88,4 +108,4 @@ export function sanitizeFilename(name: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return cleaned || "document";
-    }
+}
