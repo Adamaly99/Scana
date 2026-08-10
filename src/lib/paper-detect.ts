@@ -5,16 +5,32 @@ type JScanifyInstance = any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type CvMat = any;
 
-interface Point {
+export interface Point {
   x: number;
   y: number;
 }
 
-interface Corners {
+export interface Corners {
   topLeftCorner: Point;
   topRightCorner: Point;
   bottomLeftCorner: Point;
   bottomRightCorner: Point;
+}
+
+/**
+ * Compare deux détections consécutives : true si les 4 coins n'ont pas bougé
+ * de plus de maxDistancePx chacun. Utilisé pour la stabilisation temporelle —
+ * un contour qui "tremble" légèrement d'une frame à l'autre reste considéré stable,
+ * un contour qui "saute" (mauvaise détection) fait repartir le minuteur à zéro.
+ */
+export function cornersAreClose(a: Corners, b: Corners, maxDistancePx: number): boolean {
+  const dist = (p1: Point, p2: Point) => Math.hypot(p1.x - p2.x, p1.y - p2.y);
+  return (
+    dist(a.topLeftCorner, b.topLeftCorner) <= maxDistancePx &&
+    dist(a.topRightCorner, b.topRightCorner) <= maxDistancePx &&
+    dist(a.bottomLeftCorner, b.bottomLeftCorner) <= maxDistancePx &&
+    dist(a.bottomRightCorner, b.bottomRightCorner) <= maxDistancePx
+  );
 }
 
 /**
@@ -78,14 +94,15 @@ export interface HighlightOptions {
 
 /**
  * Version durcie de jscanify.highlightPaper() pour l'aperçu en direct.
- * Retourne true si un contour valide (document) a été mis en surbrillance.
+ * Retourne les coins détectés (utilisés pour la stabilisation temporelle côté
+ * appelant), ou null si aucun document valide n'est détecté sur cette frame.
  */
 export function highlightPaperStable(
   scanner: JScanifyInstance,
   sourceCanvas: HTMLCanvasElement,
   overlayCanvas: HTMLCanvasElement,
   options: HighlightOptions
-): boolean {
+): Corners | null {
   const cv = window.cv as unknown as CvNamespace;
   const img = cv.imread(sourceCanvas);
 
@@ -93,12 +110,12 @@ export function highlightPaperStable(
   img.delete();
 
   const ctx = overlayCanvas.getContext("2d");
-  if (!ctx) return false;
+  if (!ctx) return null;
   // On efface le contour précédent — la vidéo elle-même reste visible en dessous,
   // ce canvas ne sert plus qu'à dessiner le tracé, jamais l'image caméra.
   ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
 
-  if (!corners) return false;
+  if (!corners) return null;
 
   const { topLeftCorner, topRightCorner, bottomLeftCorner, bottomRightCorner } = corners;
   ctx.strokeStyle = options.color;
@@ -110,7 +127,7 @@ export function highlightPaperStable(
   ctx.lineTo(bottomLeftCorner.x, bottomLeftCorner.y);
   ctx.closePath();
   ctx.stroke();
-  return true;
+  return corners;
 }
 
 export interface ExtractOptions {
