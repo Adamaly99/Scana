@@ -5,11 +5,19 @@ import { useOpenCv } from "@/hooks/useOpenCv";
 import {
   ACCENT_COLOR,
   DETECTION_INTERVAL_MS,
-  OUTPUT_HEIGHT,
-  OUTPUT_WIDTH,
+  JPEG_QUALITY,
+  OUTPUT_DIMENSIONS,
   PREVIEW_MAX_WIDTH,
+  STABILITY_DURATION_MS,
+  STABILITY_TOLERANCE_PX,
 } from "@/lib/constants";
-import { extractPaperStable, highlightPaperStable } from "@/lib/paper-detect";
+import {
+  cornersAreClose,
+  extractPaperStable,
+  highlightPaperStable,
+  type Corners,
+} from "@/lib/paper-detect";
+import { useScanStore } from "@/lib/store";
 
 type CameraStatus = "requesting" | "granted" | "denied" | "unsupported";
 
@@ -19,6 +27,7 @@ interface ScannerCameraProps {
 
 export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
   const { status: cvStatus, errorMessage: cvError } = useOpenCv();
+  const quality = useScanStore((s) => s.quality);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -28,11 +37,15 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
   const scannerRef = useRef<any>(null);
   const detectionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const detectionBusyRef = useRef(false);
+  const lastCornersRef = useRef<Corners | null>(null);
+  const stableSinceRef = useRef<number | null>(null);
+  const isStableRef = useRef(false);
 
   const [cameraStatus, setCameraStatus] = useState<CameraStatus>("requesting");
   const [cameraErrorMsg, setCameraErrorMsg] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
   const [captureNotice, setCaptureNotice] = useState<string | null>(null);
+  const [isStable, setIsStable] = useState(false);
 
   // 1. Démarre la caméra dès le montage (en parallèle du chargement d'OpenCV)
   useEffect(() => {
@@ -150,10 +163,38 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
 
       detectionBusyRef.current = true;
       try {
-        highlightPaperStable(scanner, working, overlayCanvas, {
+        const corners = highlightPaperStable(scanner, working, overlayCanvas, {
           color: ACCENT_COLOR,
           thickness: 4,
         });
+
+        const now = Date.now();
+
+        if (!corners) {
+          // Rien détecté cette frame : le minuteur de stabilité repart de zéro.
+          lastCornersRef.current = null;
+          stableSinceRef.current = null;
+          if (isStableRef.current) {
+            isStableRef.current = false;
+            setIsStable(false);
+          }
+        } else {
+          const last = lastCornersRef.current;
+          const closeEnough = last && cornersAreClose(last, corners, STABILITY_TOLERANCE_PX);
+
+          if (!closeEnough) {
+            // Le contour a "sauté" (ou c'est la première détection) : redémarre le minuteur.
+            stableSinceRef.current = now;
+          }
+          lastCornersRef.current = corners;
+
+          const stableDuration = now - (stableSinceRef.current ?? now);
+          const nowStable = stableDuration >= STABILITY_DURATION_MS;
+          if (nowStable !== isStableRef.current) {
+            isStableRef.current = nowStable;
+            setIsStable(nowStable);
+          }
+        }
       } catch {
         // Une frame ratée ne doit jamais casser la boucle de détection.
       } finally {
@@ -164,6 +205,11 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
     detectionTimerRef.current = setInterval(tick, DETECTION_INTERVAL_MS);
     return () => {
       if (detectionTimerRef.current) clearInterval(detectionTimerRef.current);
+      // Repart de zéro à chaque (re)montage de la boucle (ex: retour sur l'écran caméra).
+      lastCornersRef.current = null;
+      stableSinceRef.current = null;
+      isStableRef.current = false;
+      setIsStable(false);
     };
   }, [cvStatus, cameraStatus]);
 
@@ -175,6 +221,10 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
 
     setCapturing(true);
     setCaptureNotice(null);
+    lastCornersRef.current = null;
+    stableSinceRef.current = null;
+    isStableRef.current = false;
+    setIsStable(false);
 
     // Petite pause pour laisser l'UI afficher l'état "capturing" avant le calcul (peut prendre qq centaines de ms)
     requestAnimationFrame(() => {
@@ -186,7 +236,8 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
         if (!ctx) throw new Error("Canvas indisponible");
         ctx.drawImage(video, 0, 0);
 
-        const extracted = extractPaperStable(scanner, fullCanvas, OUTPUT_WIDTH, OUTPUT_HEIGHT);
+        const { width: outputWidth, height: outputHeight } = OUTPUT_DIMENSIONS[quality];
+        const extracted = extractPaperStable(scanner, fullCanvas, outputWidth, outputHeight);
 
         if (!extracted) {
           setCaptureNotice("Aucun document détecté. Rapproche-toi et vérifie l'éclairage.");
@@ -194,15 +245,15 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
           return;
         }
 
-        const dataUrl = extracted.toDataURL("image/jpeg", 0.92);
-        onCapture(dataUrl, OUTPUT_WIDTH, OUTPUT_HEIGHT);
+        const dataUrl = extracted.toDataURL("image/jpeg", JPEG_QUALITY[quality]);
+        onCapture(dataUrl, outputWidth, outputHeight);
       } catch {
         setCaptureNotice("La capture a échoué. Réessaie.");
       } finally {
         setCapturing(false);
       }
     });
-  }, [capturing, onCapture]);
+  }, [capturing, onCapture, quality]);
 
   const isLoading = cvStatus === "loading" || cameraStatus === "requesting";
   const hasBlockingError =
@@ -252,8 +303,10 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
         <button
           onClick={handleCapture}
           disabled={isLoading || hasBlockingError || capturing}
-          aria-label="Capturer le document"
-          className="relative h-20 w-20 rounded-full border-4 border-camera-ink/80 bg-accent disabled:opacity-30 disabled:cursor-not-allowed active:scale-95 transition-transform"
+          aria-label={isStable ? "Document stable, capturer" : "Capturer le document"}
+          className={`relative h-20 w-20 rounded-full border-4 border-camera-ink/80 transition duration-200 disabled:cursor-not-allowed disabled:opacity-30 active:scale-95 ${
+            isStable ? "bg-success" : "bg-accent"
+          }`}
         >
           {capturing && (
             <span className="absolute inset-0 flex items-center justify-center">
@@ -264,4 +317,4 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
       </div>
     </div>
   );
-    }
+}
