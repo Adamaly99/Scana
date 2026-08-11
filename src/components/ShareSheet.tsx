@@ -6,7 +6,7 @@ import type { ScanDocument, ScannedPage } from "@/lib/store";
 import { useScanStore } from "@/lib/store";
 import { JPEG_QUALITY } from "@/lib/constants";
 import { buildPdfFromPages, sanitizeFilename, uint8ArrayToBlob } from "@/lib/pdf-export";
-import { applyFilterToDataUrl } from "@/lib/filters";
+import { applyFilterToBlob } from "@/lib/filters";
 import { getImageBlob } from "@/lib/image-store";
 import { shareOrDownload, downloadBlob } from "@/lib/share";
 
@@ -52,13 +52,12 @@ async function buildExport(
 
   try {
     const mime = format === "jpg" ? "image/jpeg" : "image/png";
-    const dataUrl = await applyFilterToDataUrl(
+    const blob = await applyFilterToBlob(
       rawObjectUrl,
       currentPage.filter,
       format === "jpg" ? "jpeg" : "png",
       jpegQuality
     );
-    const blob = await (await fetch(dataUrl)).blob();
     return { blob, filename: `${baseName}.${format}`, mime };
   } finally {
     URL.revokeObjectURL(rawObjectUrl);
