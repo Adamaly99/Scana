@@ -2,22 +2,13 @@ import type { FilterType } from "./store";
 
 /**
  * Code source du Worker, en JavaScript brut (pas TypeScript), instancié via Blob URL.
+ * Voir la note historique : on évite `new Worker(new URL(...))` car son support par
+ * Turbopack restait ambigu dans nos tests de build. La technique Blob est
+ * universellement supportée, indépendante de tout bundler.
  *
- * Pourquoi pas `new Worker(new URL("./worker.ts", import.meta.url))` (la méthode
- * "standard" avec les bundlers) : la documentation Turbopack affirme supporter ce
- * pattern, mais nos propres builds ont montré un fichier .ts brut copié tel quel en
- * asset statique — signe potentiel du même bug que d'autres ont rencontré avec
- * Turbopack ("Refused to execute script... MIME type not executable"). Impossible
- * de tester dans un vrai navigateur depuis cet environnement, donc plutôt que de
- * parier sur un comportement incertain d'un bundler encore jeune sur cette
- * fonctionnalité précise, on utilise la technique Blob : universellement supportée,
- * indépendante de tout bundler, aucune ambiguïté possible.
- *
- * Contrepartie assumée : la logique de traitement pixel est dupliquée ici en JS brut
- * plutôt qu'importée depuis un module partagé (un Worker via Blob ne peut pas faire
- * d'import ES ni résoudre les alias "@/..."). Si l'algorithme change, il faut le
- * changer ici ET nulle part ailleurs — c'est la seule copie, il n'y a pas de drift
- * possible avec une autre version.
+ * mode "buffer" : retourne les octets bruts encodés (JPEG/PNG), transférés en zero-copy —
+ * utilisé pour la construction PDF et l'export fichier, jamais de détour par le texte base64.
+ * mode "dataUrl" : retourne une dataURL affichable directement par <img src>.
  */
 const WORKER_SOURCE = `
 function clamp8(value) {
@@ -128,7 +119,7 @@ function toBlackAndWhite(data) {
 
 self.onmessage = async function (event) {
   var d = event.data;
-  var id = d.id, imageBitmap = d.imageBitmap, filter = d.filter, format = d.format, jpegQuality = d.jpegQuality;
+  var id = d.id, imageBitmap = d.imageBitmap, filter = d.filter, format = d.format, jpegQuality = d.jpegQuality, mode = d.mode;
   try {
     var canvas = new OffscreenCanvas(imageBitmap.width, imageBitmap.height);
     var ctx = canvas.getContext("2d");
@@ -150,10 +141,16 @@ self.onmessage = async function (event) {
 
     var mime = format === "png" ? "image/png" : "image/jpeg";
     var blob = await canvas.convertToBlob(format === "png" ? { type: mime } : { type: mime, quality: jpegQuality });
-    var reader = new FileReader();
-    reader.onload = function () { self.postMessage({ id: id, dataUrl: reader.result }); };
-    reader.onerror = function () { self.postMessage({ id: id, error: "Conversion en dataURL échouée." }); };
-    reader.readAsDataURL(blob);
+
+    if (mode === "buffer") {
+      var buffer = await blob.arrayBuffer();
+      self.postMessage({ id: id, buffer: buffer, mime: mime }, [buffer]);
+    } else {
+      var reader = new FileReader();
+      reader.onload = function () { self.postMessage({ id: id, dataUrl: reader.result }); };
+      reader.onerror = function () { self.postMessage({ id: id, error: "Conversion en dataURL échouée." }); };
+      reader.readAsDataURL(blob);
+    }
   } catch (err) {
     self.postMessage({ id: id, error: (err && err.message) || "Erreur inconnue dans le Worker." });
   }
@@ -161,51 +158,82 @@ self.onmessage = async function (event) {
 `;
 
 interface PendingRequest {
-  resolve: (dataUrl: string) => void;
+  resolve: (result: { dataUrl?: string; buffer?: ArrayBuffer; mime?: string }) => void;
   reject: (err: Error) => void;
 }
 
-let worker: Worker | null = null;
+/**
+ * Taille du pool de Workers. 3 est un compromis : assez pour un vrai gain de
+ * parallélisme sur le multi-pages (la plupart des téléphones ont 4-8 cœurs, même
+ * les bas de gamme), sans saturer la mémoire d'un appareil modeste avec trop
+ * d'OffscreenCanvas actifs en même temps.
+ */
+const POOL_SIZE = 3;
+const workerPool: Worker[] = [];
+let nextWorkerIndex = 0;
 let requestCounter = 0;
 const pending = new Map<string, PendingRequest>();
 
-function getWorker(): Worker {
-  if (!worker) {
-    const blob = new Blob([WORKER_SOURCE], { type: "application/javascript" });
-    const blobUrl = URL.createObjectURL(blob);
-    worker = new Worker(blobUrl);
-    // Le Worker est un singleton conservé pour toute la session — pas besoin de
-    // révoquer l'URL blob (coût mémoire négligeable, évite tout risque de
-    // révocation prématurée avant que le Worker ait fini de charger le script).
+function handleWorkerMessage(
+  e: MessageEvent<{ id: string; dataUrl?: string; buffer?: ArrayBuffer; mime?: string; error?: string }>
+) {
+  const { id, dataUrl, buffer, mime, error } = e.data;
+  const request = pending.get(id);
+  if (!request) return;
+  pending.delete(id);
+  if (error) request.reject(new Error(error));
+  else if (dataUrl) request.resolve({ dataUrl });
+  else if (buffer) request.resolve({ buffer, mime });
+  else request.reject(new Error("Réponse du Worker invalide."));
+}
 
-    worker.onmessage = (
-      e: MessageEvent<{ id: string; dataUrl?: string; error?: string }>
-    ) => {
-      const { id, dataUrl, error } = e.data;
-      const request = pending.get(id);
-      if (!request) return;
-      pending.delete(id);
-      if (error) request.reject(new Error(error));
-      else if (dataUrl) request.resolve(dataUrl);
-      else request.reject(new Error("Réponse du Worker invalide."));
-    };
+function createPoolWorker(): Worker {
+  const blob = new Blob([WORKER_SOURCE], { type: "application/javascript" });
+  const blobUrl = URL.createObjectURL(blob);
+  const w = new Worker(blobUrl);
+  w.onmessage = handleWorkerMessage;
+  w.onerror = () => {
+    // Une erreur sur CE Worker ne doit rejeter que les requêtes qui lui étaient
+    // destinées, mais on ne trace pas facilement "quelle requête est allée où" —
+    // par sécurité on rejette tout ce qui est en attente plutôt que de laisser
+    // des promesses pendre indéfiniment si un Worker du pool meurt.
+    pending.forEach((request) => request.reject(new Error("Un Worker de filtrage a échoué.")));
+    pending.clear();
+  };
+  return w;
+}
 
-    worker.onerror = () => {
-      // Erreur globale du Worker : on rejette tout ce qui est en attente plutôt
-      // que de laisser des promesses pendre indéfiniment.
-      pending.forEach((request) => request.reject(new Error("Le Worker de filtrage a échoué.")));
-      pending.clear();
-    };
+function getNextWorker(): Worker {
+  if (workerPool.length === 0) {
+    for (let i = 0; i < POOL_SIZE; i++) workerPool.push(createPoolWorker());
   }
-  return worker;
+  const w = workerPool[nextWorkerIndex % workerPool.length];
+  nextWorkerIndex++;
+  return w;
+}
+
+async function dispatchToWorker(
+  sourceDataUrl: string,
+  filter: FilterType,
+  format: "jpeg" | "png",
+  jpegQuality: number,
+  mode: "dataUrl" | "buffer"
+): Promise<{ dataUrl?: string; buffer?: ArrayBuffer; mime?: string }> {
+  const sourceBlob = await (await fetch(sourceDataUrl)).blob();
+  const imageBitmap = await createImageBitmap(sourceBlob);
+
+  const id = `filter_${Date.now()}_${++requestCounter}`;
+  const w = getNextWorker();
+
+  return new Promise((resolve, reject) => {
+    pending.set(id, { resolve, reject });
+    w.postMessage({ id, imageBitmap, filter, format, jpegQuality, mode }, [imageBitmap]);
+  });
 }
 
 /**
- * Applique un filtre à une image source et renvoie une nouvelle dataURL.
- * Ne modifie jamais l'image d'origine — le filtre est toujours recalculé depuis l'image source.
- * Tout le calcul pixel se fait dans un Web Worker : l'interface ne gèle jamais pendant
- * le traitement, même en qualité "haute" sur un appareil modeste.
- *
+ * Applique un filtre à une image source et renvoie une nouvelle dataURL, prête pour
+ * <img src>. Ne modifie jamais l'image d'origine — recalculée depuis l'image source.
  * sourceDataUrl accepte aussi bien une dataURL (data:...) qu'une URL blob (blob:...).
  */
 export async function applyFilterToDataUrl(
@@ -214,14 +242,23 @@ export async function applyFilterToDataUrl(
   format: "jpeg" | "png" = "jpeg",
   jpegQuality = 0.92
 ): Promise<string> {
-  const sourceBlob = await (await fetch(sourceDataUrl)).blob();
-  const imageBitmap = await createImageBitmap(sourceBlob);
+  const result = await dispatchToWorker(sourceDataUrl, filter, format, jpegQuality, "dataUrl");
+  if (!result.dataUrl) throw new Error("Le Worker n'a pas renvoyé de dataURL.");
+  return result.dataUrl;
+}
 
-  const id = `filter_${Date.now()}_${++requestCounter}`;
-  const w = getWorker();
-
-  return new Promise((resolve, reject) => {
-    pending.set(id, { resolve, reject });
-    w.postMessage({ id, imageBitmap, filter, format, jpegQuality }, [imageBitmap]);
-  });
+/**
+ * Applique un filtre et renvoie directement un Blob des octets encodés — sans jamais
+ * passer par le texte base64 (ni à l'aller ni au retour). Utilisé partout où le
+ * résultat final est un fichier (PDF, export JPG/PNG), jamais un <img src> direct.
+ */
+export async function applyFilterToBlob(
+  sourceDataUrl: string,
+  filter: FilterType,
+  format: "jpeg" | "png" = "jpeg",
+  jpegQuality = 0.92
+): Promise<Blob> {
+  const result = await dispatchToWorker(sourceDataUrl, filter, format, jpegQuality, "buffer");
+  if (!result.buffer || !result.mime) throw new Error("Le Worker n'a pas renvoyé de données.");
+  return new Blob([result.buffer], { type: result.mime });
 }
