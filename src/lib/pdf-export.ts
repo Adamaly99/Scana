@@ -1,20 +1,9 @@
 import { PDFDocument } from "pdf-lib";
 import type { ScannedPage } from "./store";
-import { applyFilterToDataUrl } from "./filters";
+import { applyFilterToBlob } from "./filters";
 import { getImageBlob } from "./image-store";
 import { downloadBlob } from "./share";
 import { PAGE_SIZE_PT, type PageFormat } from "./constants";
-
-function dataUrlToUint8Array(dataUrl: string): Uint8Array {
-  const base64 = dataUrl.split(",")[1];
-  if (!base64) throw new Error("dataURL invalide : impossible d'en extraire les données.");
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
-}
 
 export interface BuildPdfOptions {
   onProgress?: (done: number, total: number) => void;
@@ -28,6 +17,10 @@ export interface BuildPdfOptions {
  * Fusionne toutes les pages (dans l'ordre fourni) en un seul PDF.
  * Le filtre de chaque page est appliqué au moment de l'export (jamais stocké
  * à l'avance), donc le PDF reflète toujours le dernier choix de filtre.
+ *
+ * Le filtrage de TOUTES les pages est lancé en parallèle (réparti sur le pool de
+ * Workers) — c'est la partie lente. L'assemblage du PDF, lui, reste séquentiel
+ * (rapide, et préserve l'ordre des pages) une fois tous les filtrages terminés.
  */
 export async function buildPdfFromPages(
   pages: ScannedPage[],
@@ -39,27 +32,31 @@ export async function buildPdfFromPages(
     throw new Error("Aucune page à exporter.");
   }
 
+  let completed = 0;
+
+  const filteredBuffers = await Promise.all(
+    pages.map(async (page, i) => {
+      const rawBlob = await getImageBlob(page.id);
+      if (!rawBlob) {
+        throw new Error(`Image manquante pour la page ${i + 1}.`);
+      }
+      const rawObjectUrl = URL.createObjectURL(rawBlob);
+      try {
+        const filteredBlob = await applyFilterToBlob(rawObjectUrl, page.filter, "jpeg", jpegQuality);
+        return await filteredBlob.arrayBuffer();
+      } finally {
+        URL.revokeObjectURL(rawObjectUrl);
+        completed++;
+        onProgress?.(completed, pages.length);
+      }
+    })
+  );
+
   const { width: pageWidthPt, height: pageHeightPt } = PAGE_SIZE_PT[pageFormat];
   const pdfDoc = await PDFDocument.create();
 
   for (let i = 0; i < pages.length; i++) {
-    const page = pages[i];
-    const rawBlob = await getImageBlob(page.id);
-    if (!rawBlob) {
-      throw new Error(`Image manquante pour la page ${i + 1}.`);
-    }
-    const rawObjectUrl = URL.createObjectURL(rawBlob);
-
-    let filteredDataUrl: string;
-    try {
-      filteredDataUrl = await applyFilterToDataUrl(rawObjectUrl, page.filter, "jpeg", jpegQuality);
-    } finally {
-      URL.revokeObjectURL(rawObjectUrl);
-    }
-
-    const imageBytes = dataUrlToUint8Array(filteredDataUrl);
-    const jpgImage = await pdfDoc.embedJpg(imageBytes);
-
+    const jpgImage = await pdfDoc.embedJpg(new Uint8Array(filteredBuffers[i]));
     const pdfPage = pdfDoc.addPage([pageWidthPt, pageHeightPt]);
     pdfPage.drawImage(jpgImage, {
       x: 0,
@@ -67,8 +64,6 @@ export async function buildPdfFromPages(
       width: pageWidthPt,
       height: pageHeightPt,
     });
-
-    onProgress?.(i + 1, pages.length);
   }
 
   return pdfDoc.save();
