@@ -3,41 +3,29 @@
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
-import ScannerCamera from "@/components/ScannerCamera";
+import ScannerCamera, { type CaptureResult } from "@/components/ScannerCamera";
 import ReviewOverlay from "@/components/ReviewOverlay";
 import PageDrawer from "@/components/PageDrawer";
 import { useScanStore, type FilterType } from "@/lib/store";
-
-interface PendingCapture {
-  rawDataUrl: string;
-  width: number;
-  height: number;
-}
 
 export default function ScanPage() {
   const router = useRouter();
   const pages = useScanStore((s) => s.pages);
   const addPage = useScanStore((s) => s.addPage);
 
-  const [pending, setPending] = useState<PendingCapture | null>(null);
+  const [pending, setPending] = useState<CaptureResult | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const handleCapture = useCallback((dataUrl: string, width: number, height: number) => {
-    setPending({ rawDataUrl: dataUrl, width, height });
+  const handleCapture = useCallback((result: CaptureResult) => {
+    setPending(result);
   }, []);
 
   const handleConfirm = useCallback(
-    async (filter: FilterType) => {
-      if (!pending) return;
-      await addPage({
-        dataUrl: pending.rawDataUrl,
-        filter,
-        width: pending.width,
-        height: pending.height,
-      });
+    async (finalDataUrl: string, filter: FilterType, width: number, height: number) => {
+      await addPage({ dataUrl: finalDataUrl, filter, width, height });
       setPending(null);
     },
-    [pending, addPage]
+    [addPage]
   );
 
   const handleRetake = useCallback(() => {
@@ -71,11 +59,7 @@ export default function ScanPage() {
         <ScannerCamera onCapture={handleCapture} />
 
         {pending && (
-          <ReviewOverlay
-            rawDataUrl={pending.rawDataUrl}
-            onConfirm={handleConfirm}
-            onRetake={handleRetake}
-          />
+          <ReviewOverlay capture={pending} onConfirm={handleConfirm} onRetake={handleRetake} />
         )}
 
         <PageDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
