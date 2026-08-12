@@ -130,39 +130,42 @@ export function highlightPaperStable(
   return corners;
 }
 
-export interface ExtractOptions {
+export interface DetectOptions {
   /** Fraction minimale de l'aire totale de l'image que doit occuper le contour */
   minAreaRatio?: number;
 }
 
 /**
- * Version durcie de jscanify.extractPaper() — LA CORRECTION CRITIQUE.
- *
- * L'originale utilise findPaperContour() sans aucune validation de forme : si le
- * contour le plus grand trouvé n'est pas vraiment le document (reflet, ombre, bord
- * de table...), elle déforme quand même toute l'image selon ces mauvais points —
- * résultat : un scan illisible en perspective cassée au lieu d'un vrai rectangle plat.
- *
- * Ici, on ne tente le redressement de perspective QUE si le contour détecté est
- * suffisamment grand ET approximativement un quadrilatère. Sinon, on retourne null
- * (même comportement que "aucun document détecté") plutôt que de produire un scan
- * inutilisable.
+ * Détecte les 4 coins d'un document dans une image, SANS déformer l'image.
+ * Séparé de la déformation exprès : permet de réutiliser warpToCorners() avec
+ * des coins ajustés manuellement par l'utilisateur (recadrage manuel), pas
+ * seulement avec les coins auto-détectés.
  */
-export function extractPaperStable(
+export function detectCorners(
   scanner: JScanifyInstance,
   sourceCanvas: HTMLCanvasElement,
-  resultWidth: number,
-  resultHeight: number,
-  options: ExtractOptions = {}
-): HTMLCanvasElement | null {
+  options: DetectOptions = {}
+): Corners | null {
   const cv = window.cv as unknown as CvNamespace;
   const img = cv.imread(sourceCanvas);
-
   const corners = findValidCorners(scanner, cv, img, options.minAreaRatio ?? 0.15);
-  if (!corners) {
-    img.delete();
-    return null;
-  }
+  img.delete();
+  return corners;
+}
+
+/**
+ * Redresse la perspective d'une image selon 4 coins donnés (détectés automatiquement
+ * OU ajustés manuellement par l'utilisateur — cette fonction ne sait pas d'où ils viennent).
+ * C'est le cœur de l'ancienne extractPaperStable(), extrait pour être réutilisable.
+ */
+export function warpToCorners(
+  sourceCanvas: HTMLCanvasElement,
+  corners: Corners,
+  resultWidth: number,
+  resultHeight: number
+): HTMLCanvasElement {
+  const cv = window.cv as unknown as CvNamespace;
+  const img = cv.imread(sourceCanvas);
 
   const { topLeftCorner, topRightCorner, bottomLeftCorner, bottomRightCorner } = corners;
 
