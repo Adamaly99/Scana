@@ -13,16 +13,28 @@ import {
 } from "@/lib/constants";
 import {
   cornersAreClose,
-  extractPaperStable,
+  detectCorners,
   highlightPaperStable,
+  warpToCorners,
   type Corners,
 } from "@/lib/paper-detect";
 import { useScanStore } from "@/lib/store";
 
+export interface CaptureResult {
+  /** Résultat auto-recadré (ou null si aucun document n'a pu être détecté) */
+  croppedDataUrl: string | null;
+  /** Photo brute complète, jamais jetée — permet le recadrage manuel */
+  rawFrameDataUrl: string;
+  /** Coins auto-détectés (pré-remplissent l'ajustement manuel), null si échec */
+  detectedCorners: Corners | null;
+  width: number;
+  height: number;
+}
+
 type CameraStatus = "requesting" | "granted" | "denied" | "unsupported";
 
 interface ScannerCameraProps {
-  onCapture: (dataUrl: string, width: number, height: number) => void;
+  onCapture: (result: CaptureResult) => void;
 }
 
 export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
@@ -236,17 +248,36 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
         if (!ctx) throw new Error("Canvas indisponible");
         ctx.drawImage(video, 0, 0);
 
+        // La photo brute est TOUJOURS conservée — c'est elle qui permet le recadrage
+        // manuel si l'auto-détection échoue ou tombe à côté.
+        const rawFrameDataUrl = fullCanvas.toDataURL("image/jpeg", 0.92);
         const { width: outputWidth, height: outputHeight } = OUTPUT_DIMENSIONS[quality];
-        const extracted = extractPaperStable(scanner, fullCanvas, outputWidth, outputHeight);
 
-        if (!extracted) {
-          setCaptureNotice("Aucun document détecté. Rapproche-toi et vérifie l'éclairage.");
-          setCapturing(false);
+        const corners = detectCorners(scanner, fullCanvas);
+
+        if (!corners) {
+          // Plus de cul-de-sac "réessaie" : on part quand même en review, avec
+          // un recadrage manuel à faire (aucun contour n'a pu servir de point de départ).
+          onCapture({
+            croppedDataUrl: null,
+            rawFrameDataUrl,
+            detectedCorners: null,
+            width: outputWidth,
+            height: outputHeight,
+          });
           return;
         }
 
-        const dataUrl = extracted.toDataURL("image/jpeg", JPEG_QUALITY[quality]);
-        onCapture(dataUrl, outputWidth, outputHeight);
+        const extracted = warpToCorners(fullCanvas, corners, outputWidth, outputHeight);
+        const croppedDataUrl = extracted.toDataURL("image/jpeg", JPEG_QUALITY[quality]);
+
+        onCapture({
+          croppedDataUrl,
+          rawFrameDataUrl,
+          detectedCorners: corners,
+          width: outputWidth,
+          height: outputHeight,
+        });
       } catch {
         setCaptureNotice("La capture a échoué. Réessaie.");
       } finally {
