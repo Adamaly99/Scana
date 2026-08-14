@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ChevronLeft, ChevronRight, Trash2, Pencil, Check, Share2, ScanText } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Trash2, Pencil, Check, Share2, ScanText, RotateCw } from "lucide-react";
 import { useScanStore, type FilterType } from "@/lib/store";
 import { applyFilterToDataUrl } from "@/lib/filters";
 import { getImageBlob } from "@/lib/image-store";
@@ -23,6 +23,7 @@ export default function DocumentDetailPage() {
 
   const documents = useScanStore((s) => s.documents);
   const setDocumentPageFilter = useScanStore((s) => s.setDocumentPageFilter);
+  const rotateDocumentPage = useScanStore((s) => s.rotateDocumentPage);
   const deleteDocument = useScanStore((s) => s.deleteDocument);
   const renameDocument = useScanStore((s) => s.renameDocument);
 
@@ -35,6 +36,7 @@ export default function DocumentDetailPage() {
   const [ocrOpen, setOcrOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [nameDraft, setNameDraft] = useState(document?.name ?? "");
+  const [rotating, setRotating] = useState(false);
 
   const safeIndex = document ? Math.min(pageIndex, document.pages.length - 1) : 0;
   const currentPage = document?.pages[safeIndex];
@@ -70,8 +72,11 @@ export default function DocumentDetailPage() {
     return () => {
       cancelled = true;
     };
+    // currentPage.width est inclus exprès : après une rotation, l'id et le filtre
+    // ne changent pas, seul le contenu binaire et les dimensions changent — sans
+    // width ici, l'aperçu resterait figé sur l'ancienne orientation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage?.id, currentPage?.filter]);
+  }, [currentPage?.id, currentPage?.filter, currentPage?.width]);
 
   if (!document) {
     return (
@@ -95,6 +100,16 @@ export default function DocumentDetailPage() {
   const commitRename = () => {
     renameDocument(document.id, nameDraft);
     setRenaming(false);
+  };
+
+  const handleRotate = async () => {
+    if (!currentPage || rotating) return;
+    setRotating(true);
+    try {
+      await rotateDocumentPage(document.id, currentPage.id, "cw");
+    } finally {
+      setRotating(false);
+    }
   };
 
   return (
@@ -192,7 +207,7 @@ export default function DocumentDetailPage() {
         )}
       </div>
 
-      <div className="flex justify-center gap-2 px-6 pb-4">
+      <div className="flex justify-center gap-2 px-6 pb-3">
         {FILTERS.map((f) => (
           <button
             key={f.id}
@@ -208,6 +223,17 @@ export default function DocumentDetailPage() {
             {f.label}
           </button>
         ))}
+      </div>
+
+      <div className="flex justify-center px-6 pb-4">
+        <button
+          onClick={handleRotate}
+          disabled={!currentPage || rotating}
+          className="flex items-center gap-2 rounded-full border border-line bg-card px-4 py-2 text-xs font-medium text-ink-dim disabled:opacity-50"
+        >
+          <RotateCw size={14} />
+          {rotating ? "Rotation…" : "Pivoter"}
+        </button>
       </div>
 
       <div className="flex gap-3 px-6 pb-8">
@@ -240,4 +266,4 @@ export default function DocumentDetailPage() {
       )}
     </div>
   );
-}
+    }
