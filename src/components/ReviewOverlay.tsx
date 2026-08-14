@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Crop } from "lucide-react";
+import { Crop, RotateCw } from "lucide-react";
 import { applyFilterToDataUrl } from "@/lib/filters";
+import { rotateDataUrl90 } from "@/lib/rotate";
 import type { FilterType } from "@/lib/store";
 import type { CaptureResult } from "@/components/ScannerCamera";
 import ManualCropOverlay from "@/components/ManualCropOverlay";
@@ -21,9 +22,11 @@ const FILTERS: { id: FilterType; label: string }[] = [
 
 export default function ReviewOverlay({ capture, onConfirm, onRetake }: ReviewOverlayProps) {
   const [croppedDataUrl, setCroppedDataUrl] = useState<string | null>(capture.croppedDataUrl);
+  const [dimensions, setDimensions] = useState({ width: capture.width, height: capture.height });
   const [filter, setFilter] = useState<FilterType>("color");
   const [previewUrl, setPreviewUrl] = useState<string | null>(capture.croppedDataUrl);
   const [rendering, setRendering] = useState(false);
+  const [rotating, setRotating] = useState(false);
   // Si l'auto-détection a échoué (croppedDataUrl est null), on ouvre directement
   // l'ajustement manuel — il n'y a de toute façon rien d'autre à montrer.
   const [cropOpen, setCropOpen] = useState(capture.croppedDataUrl === null);
@@ -56,7 +59,22 @@ export default function ReviewOverlay({ capture, onConfirm, onRetake }: ReviewOv
 
   const handleCropConfirm = (newCroppedDataUrl: string) => {
     setCroppedDataUrl(newCroppedDataUrl);
+    setDimensions({ width: capture.width, height: capture.height });
     setCropOpen(false);
+  };
+
+  const handleRotate = async () => {
+    if (!croppedDataUrl || rotating) return;
+    setRotating(true);
+    try {
+      const result = await rotateDataUrl90(croppedDataUrl, "cw");
+      setCroppedDataUrl(result.dataUrl);
+      setDimensions({ width: result.width, height: result.height });
+    } catch {
+      // Échec silencieux : l'utilisateur peut réessayer.
+    } finally {
+      setRotating(false);
+    }
   };
 
   if (cropOpen) {
@@ -91,13 +109,21 @@ export default function ReviewOverlay({ capture, onConfirm, onRetake }: ReviewOv
         )}
       </div>
 
-      <div className="flex justify-center px-6 pb-3">
+      <div className="flex items-center justify-center gap-2 px-6 pb-3">
         <button
           onClick={() => setCropOpen(true)}
           className="flex items-center gap-2 rounded-full border border-line bg-card px-4 py-2 text-xs font-medium text-ink-dim"
         >
           <Crop size={14} />
           Ajuster le cadrage
+        </button>
+        <button
+          onClick={handleRotate}
+          disabled={rotating}
+          className="flex items-center gap-2 rounded-full border border-line bg-card px-4 py-2 text-xs font-medium text-ink-dim disabled:opacity-50"
+        >
+          <RotateCw size={14} />
+          Pivoter
         </button>
       </div>
 
@@ -126,7 +152,7 @@ export default function ReviewOverlay({ capture, onConfirm, onRetake }: ReviewOv
         </button>
         <button
           onClick={() =>
-            croppedDataUrl && onConfirm(croppedDataUrl, filter, capture.width, capture.height)
+            croppedDataUrl && onConfirm(croppedDataUrl, filter, dimensions.width, dimensions.height)
           }
           disabled={!croppedDataUrl}
           className="flex-[2] rounded-2xl bg-accent py-4 text-sm font-bold text-accent-ink disabled:opacity-50"
@@ -136,4 +162,4 @@ export default function ReviewOverlay({ capture, onConfirm, onRetake }: ReviewOv
       </div>
     </div>
   );
-}
+                   }
