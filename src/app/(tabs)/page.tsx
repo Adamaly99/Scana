@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { Camera, Plus } from "lucide-react";
+import { Camera, Plus, TriangleAlert } from "lucide-react";
 import { useScanStore } from "@/lib/store";
 import DocumentCard from "@/components/DocumentCard";
 
 export default function HomePage() {
   const hasHydrated = useScanStore((s) => s.hasHydrated);
   const documents = useScanStore((s) => s.documents);
+  const hasSeenDataWarning = useScanStore((s) => s.hasSeenDataWarning);
+  const setHasSeenDataWarning = useScanStore((s) => s.setHasSeenDataWarning);
 
   return (
     <div className="flex min-h-full flex-col">
@@ -17,6 +19,29 @@ export default function HomePage() {
           Prêt à scanner quelque chose d&apos;important aujourd&apos;hui ?
         </p>
       </header>
+
+      {hasHydrated && !hasSeenDataWarning && (
+        <div className="mx-6 mt-4 rounded-2xl border border-line bg-card p-4">
+          <div className="flex items-start gap-2.5">
+            <TriangleAlert size={18} className="mt-0.5 shrink-0 text-warning" />
+            <div>
+              <p className="text-sm font-semibold text-ink">À savoir avant de commencer</p>
+              <p className="mt-1 text-xs leading-relaxed text-ink-dim">
+                Tes documents restent uniquement sur cet appareil — aucune sauvegarde
+                ailleurs. Si tu supprimes Scana, changes de téléphone ou vides les
+                données du navigateur, ils sont perdus définitivement. Pense à
+                exporter ce qui compte.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={setHasSeenDataWarning}
+            className="mt-3 rounded-full bg-accent px-4 py-2 text-xs font-bold text-accent-ink"
+          >
+            Compris
+          </button>
+        </div>
+      )}
 
       <div className="px-6 pt-4">
         <Link
@@ -63,4 +88,4 @@ export default function HomePage() {
       </div>
     </div>
   );
-}
+              }
