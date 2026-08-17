@@ -2,7 +2,14 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { idbStorage } from "./idb-storage";
 import type { PageFormat, ScanQuality } from "./constants";
-import { dataUrlToBlob, deleteImageBlob, deleteImageBlobs, saveImageBlob } from "./image-store";
+import {
+  dataUrlToBlob,
+  deleteImageBlob,
+  deleteImageBlobs,
+  getImageBlob,
+  saveImageBlob,
+} from "./image-store";
+import { rotateImageBlob90, type RotateDirection } from "./rotate";
 
 export type FilterType = "color" | "gray" | "bw";
 
@@ -61,8 +68,18 @@ interface ScanStore {
   deleteDocument: (id: string) => Promise<void>;
   renameDocument: (id: string, name: string) => void;
   setDocumentPageFilter: (documentId: string, pageId: string, filter: FilterType) => void;
+  /**
+   * Pivote une page d'un document déjà sauvegardé de 90°. Réécrit le Blob binaire
+   * ET met à jour width/height (ils s'inversent), sinon l'aperçu et le PDF final
+   * seraient incohérents avec l'image réellement stockée.
+   */
+  rotateDocumentPage: (documentId: string, pageId: string, direction: RotateDirection) => Promise<void>;
 
   setHasHydrated: (value: boolean) => void;
+
+  /** true une fois que l'utilisateur a fermé l'avertissement de perte de données */
+  hasSeenDataWarning: boolean;
+  setHasSeenDataWarning: () => void;
 }
 
 function makeId(prefix: string): string {
@@ -77,6 +94,7 @@ export const useScanStore = create<ScanStore>()(
       hasHydrated: false,
       quality: "standard",
       pageFormat: "a4",
+      hasSeenDataWarning: false,
 
       setQuality: (quality) => set({ quality }),
       setPageFormat: (pageFormat) => set({ pageFormat }),
@@ -186,7 +204,26 @@ export const useScanStore = create<ScanStore>()(
           ),
         })),
 
+      rotateDocumentPage: async (documentId, pageId, direction) => {
+        const blob = await getImageBlob(pageId);
+        if (!blob) return;
+        const { blob: rotatedBlob, width, height } = await rotateImageBlob90(blob, direction);
+        await saveImageBlob(pageId, rotatedBlob);
+        set((state) => ({
+          documents: state.documents.map((d) =>
+            d.id !== documentId
+              ? d
+              : {
+                  ...d,
+                  pages: d.pages.map((p) => (p.id === pageId ? { ...p, width, height } : p)),
+                }
+          ),
+        }));
+      },
+
       setHasHydrated: (value) => set({ hasHydrated: value }),
+
+      setHasSeenDataWarning: () => set({ hasSeenDataWarning: true }),
     }),
     {
       name: "scana-store",
@@ -196,6 +233,7 @@ export const useScanStore = create<ScanStore>()(
         documents: state.documents,
         quality: state.quality,
         pageFormat: state.pageFormat,
+        hasSeenDataWarning: state.hasSeenDataWarning,
       }),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);
