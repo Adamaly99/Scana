@@ -10,7 +10,12 @@ import ManualCropOverlay from "@/components/ManualCropOverlay";
 
 interface ReviewOverlayProps {
   capture: CaptureResult;
-  onConfirm: (finalDataUrl: string, filter: FilterType, width: number, height: number) => void;
+  onConfirm: (
+    finalDataUrl: string,
+    filter: FilterType,
+    width: number,
+    height: number
+  ) => void | Promise<void>;
   onRetake: () => void;
 }
 
@@ -27,6 +32,8 @@ export default function ReviewOverlay({ capture, onConfirm, onRetake }: ReviewOv
   const [previewUrl, setPreviewUrl] = useState<string | null>(capture.croppedDataUrl);
   const [rendering, setRendering] = useState(false);
   const [rotating, setRotating] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
   // Si l'auto-détection a échoué (croppedDataUrl est null), on ouvre directement
   // l'ajustement manuel — il n'y a de toute façon rien d'autre à montrer.
   const [cropOpen, setCropOpen] = useState(capture.croppedDataUrl === null);
@@ -61,6 +68,19 @@ export default function ReviewOverlay({ capture, onConfirm, onRetake }: ReviewOv
     setCroppedDataUrl(newCroppedDataUrl);
     setDimensions({ width: capture.width, height: capture.height });
     setCropOpen(false);
+  };
+
+  const handleConfirm = async () => {
+    if (!croppedDataUrl || rendering || rotating || confirming) return;
+    setConfirming(true);
+    setConfirmError(null);
+    try {
+      await onConfirm(croppedDataUrl, filter, dimensions.width, dimensions.height);
+    } catch {
+      setConfirmError("La page n’a pas pu être enregistrée. Vérifie l’espace disponible puis réessaie.");
+    } finally {
+      setConfirming(false);
+    }
   };
 
   const handleRotate = async () => {
@@ -127,6 +147,12 @@ export default function ReviewOverlay({ capture, onConfirm, onRetake }: ReviewOv
         </button>
       </div>
 
+      {confirmError && (
+        <p className="px-6 pb-2 text-center text-sm text-danger" role="alert">
+          {confirmError}
+        </p>
+      )}
+
       <div className="flex justify-center gap-2 px-6 pb-4">
         {FILTERS.map((f) => (
           <button
@@ -151,13 +177,11 @@ export default function ReviewOverlay({ capture, onConfirm, onRetake }: ReviewOv
           Reprendre
         </button>
         <button
-          onClick={() =>
-            croppedDataUrl && onConfirm(croppedDataUrl, filter, dimensions.width, dimensions.height)
-          }
-          disabled={!croppedDataUrl}
+          onClick={handleConfirm}
+          disabled={!croppedDataUrl || rendering || rotating || confirming}
           className="flex-[2] rounded-2xl bg-accent py-4 text-sm font-bold text-accent-ink disabled:opacity-50"
         >
-          Garder cette page
+          {confirming ? "Enregistrement…" : rendering ? "Préparation…" : "Garder cette page"}
         </button>
       </div>
     </div>
