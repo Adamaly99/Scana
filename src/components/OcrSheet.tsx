@@ -1,52 +1,107 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Copy, Check, Loader2 } from "lucide-react";
+import { Check, Copy, Loader2, ShieldCheck } from "lucide-react";
+import { createOcrCacheKey, getLocalOcrResult, saveLocalOcrResult } from "@/lib/local-db";
 import { runOcr } from "@/lib/ocr";
 
 interface OcrSheetProps {
   open: boolean;
   onClose: () => void;
   imageDataUrl: string;
+  pageId: string;
+  filter: string;
+  width: number;
+  height: number;
 }
 
 type Status = "idle" | "running" | "done" | "error";
 
-export default function OcrSheet({ open, onClose, imageDataUrl }: OcrSheetProps) {
+export default function OcrSheet({
+  open,
+  onClose,
+  imageDataUrl,
+  pageId,
+  filter,
+  width,
+  height,
+}: OcrSheetProps) {
   const [status, setStatus] = useState<Status>("idle");
   const [progress, setProgress] = useState(0);
   const [text, setText] = useState("");
+  const [confidence, setConfidence] = useState<number | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
 
   useEffect(() => {
     if (!open) return;
+    const controller = new AbortController();
     let cancelled = false;
+    const cacheKey = createOcrCacheKey(filter, width, height);
 
     Promise.resolve().then(() => {
       if (!cancelled) {
         setStatus("running");
         setProgress(0);
         setText("");
+        setConfidence(null);
+        setErrorMessage(null);
         setCopied(false);
       }
     });
 
-    runOcr(imageDataUrl, (p, s) => {
-      if (!cancelled && s === "recognizing text") setProgress(p);
-    })
-      .then((result) => {
-        if (cancelled) return;
-        setText(result);
-        setStatus("done");
-      })
-      .catch(() => {
-        if (!cancelled) setStatus("error");
-      });
+    (async () => {
+      try {
+        const cached = await getLocalOcrResult(pageId, cacheKey);
+        if (cached) {
+          if (!cancelled) {
+            setText(cached.text);
+            setConfidence(cached.confidence);
+            setProgress(1);
+            setStatus("done");
+          }
+          return;
+        }
+
+        const result = await runOcr(imageDataUrl, {
+          signal: controller.signal,
+          onProgress: (value, stage) => {
+            if (!cancelled && stage === "recognizing text") setProgress(value);
+          },
+        });
+
+        await saveLocalOcrResult({
+          pageId,
+          cacheKey,
+          text: result.text,
+          confidence: result.confidence,
+          language: "fra+eng",
+          processedAt: Date.now(),
+        });
+
+        if (!cancelled) {
+          setText(result.text);
+          setConfidence(result.confidence);
+          setProgress(1);
+          setStatus("done");
+        }
+      } catch (error) {
+        if (cancelled || (error instanceof DOMException && error.name === "AbortError")) return;
+        setErrorMessage(
+          error instanceof Error && error.message
+            ? error.message
+            : "Le moteur OCR local n’a pas pu terminer la lecture.",
+        );
+        setStatus("error");
+      }
+    })();
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [open, imageDataUrl]);
+  }, [open, imageDataUrl, pageId, filter, width, height, retryToken]);
 
   if (!open) return null;
 
@@ -54,9 +109,9 @@ export default function OcrSheet({ open, onClose, imageDataUrl }: OcrSheetProps)
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      window.setTimeout(() => setCopied(false), 1500);
     } catch {
-      // silencieux : le presse-papiers peut être refusé selon le contexte, pas bloquant
+      setErrorMessage("Le presse-papiers n’est pas disponible dans ce navigateur.");
     }
   };
 
@@ -68,7 +123,13 @@ export default function OcrSheet({ open, onClose, imageDataUrl }: OcrSheetProps)
         <div className="mx-auto mt-3 h-1 w-10 rounded-full bg-line" />
 
         <div className="flex items-center justify-between px-6 pt-4">
-          <h2 className="font-semibold text-ink">Texte extrait</h2>
+          <div>
+            <h2 className="font-semibold text-ink">Texte extrait</h2>
+            <p className="mt-1 flex items-center gap-1 text-[11px] text-ink-dim">
+              <ShieldCheck size={12} className="text-accent" />
+              Traitement local, aucune image envoyée
+            </p>
+          </div>
           <button onClick={onClose} className="text-sm text-ink-dim">
             Fermer
           </button>
@@ -81,19 +142,35 @@ export default function OcrSheet({ open, onClose, imageDataUrl }: OcrSheetProps)
               <p className="text-sm text-ink-dim">
                 {progress > 0
                   ? `Lecture du texte… ${Math.round(progress * 100)}%`
-                  : "Préparation du moteur OCR…"}
+                  : "Préparation du moteur OCR local…"}
               </p>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-raised">
+                <div
+                  className="h-full rounded-full bg-accent transition-[width] duration-150"
+                  style={{ width: `${Math.max(4, Math.round(progress * 100))}%` }}
+                />
+              </div>
               <p className="px-6 text-xs text-ink-dim">
-                Premier lancement un peu plus long (téléchargement du moteur), les
-                suivants seront plus rapides.
+                Le premier lancement peut être plus long. Le moteur et les modèles sont ensuite
+                conservés par le navigateur.
               </p>
             </div>
           )}
 
           {status === "error" && (
-            <p className="py-10 text-center text-sm text-danger">
-              L&apos;extraction a échoué. Vérifie ta connexion et réessaie.
-            </p>
+            <div className="py-10 text-center">
+              <p className="text-sm text-danger">{errorMessage}</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setStatus("idle");
+                  setRetryToken((value) => value + 1);
+                }}
+                className="mt-4 rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-ink"
+              >
+                Fermer et réessayer
+              </button>
+            </div>
           )}
 
           {status === "done" &&
@@ -102,7 +179,14 @@ export default function OcrSheet({ open, onClose, imageDataUrl }: OcrSheetProps)
                 Aucun texte détecté sur cette page.
               </p>
             ) : (
-              <p className="whitespace-pre-wrap pb-4 text-sm text-ink">{text}</p>
+              <>
+                {confidence !== null && (
+                  <p className="mb-3 text-xs text-ink-dim">
+                    Confiance moyenne : {Math.round(confidence)} % · Résultat conservé localement
+                  </p>
+                )}
+                <p className="whitespace-pre-wrap pb-4 text-sm text-ink">{text}</p>
+              </>
             ))}
         </div>
 
