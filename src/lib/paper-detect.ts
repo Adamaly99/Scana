@@ -90,6 +90,10 @@ export interface HighlightOptions {
   thickness: number;
   /** Fraction minimale de l'aire totale de l'image que doit occuper le contour */
   minAreaRatio?: number;
+  /** Coins affichés à la frame précédente, pour amortir les micro-sauts visuels. */
+  previousCorners?: Corners | null;
+  /** Coefficient de suivi du nouveau contour (0.2–0.5 recommandé). */
+  smoothing?: number;
 }
 
 /**
@@ -117,9 +121,33 @@ export function highlightPaperStable(
 
   if (!corners) return null;
 
-  const { topLeftCorner, topRightCorner, bottomLeftCorner, bottomRightCorner } = corners;
+  const previous = options.previousCorners;
+  const alpha = Math.min(1, Math.max(0.1, options.smoothing ?? 0.35));
+  const displayCorners = previous
+    ? {
+        topLeftCorner: {
+          x: previous.topLeftCorner.x + (corners.topLeftCorner.x - previous.topLeftCorner.x) * alpha,
+          y: previous.topLeftCorner.y + (corners.topLeftCorner.y - previous.topLeftCorner.y) * alpha,
+        },
+        topRightCorner: {
+          x: previous.topRightCorner.x + (corners.topRightCorner.x - previous.topRightCorner.x) * alpha,
+          y: previous.topRightCorner.y + (corners.topRightCorner.y - previous.topRightCorner.y) * alpha,
+        },
+        bottomLeftCorner: {
+          x: previous.bottomLeftCorner.x + (corners.bottomLeftCorner.x - previous.bottomLeftCorner.x) * alpha,
+          y: previous.bottomLeftCorner.y + (corners.bottomLeftCorner.y - previous.bottomLeftCorner.y) * alpha,
+        },
+        bottomRightCorner: {
+          x: previous.bottomRightCorner.x + (corners.bottomRightCorner.x - previous.bottomRightCorner.x) * alpha,
+          y: previous.bottomRightCorner.y + (corners.bottomRightCorner.y - previous.bottomRightCorner.y) * alpha,
+        },
+      }
+    : corners;
+
+  const { topLeftCorner, topRightCorner, bottomLeftCorner, bottomRightCorner } = displayCorners;
   ctx.strokeStyle = options.color;
   ctx.lineWidth = options.thickness;
+  ctx.lineJoin = "round";
   ctx.beginPath();
   ctx.moveTo(topLeftCorner.x, topLeftCorner.y);
   ctx.lineTo(topRightCorner.x, topRightCorner.y);
@@ -127,7 +155,7 @@ export function highlightPaperStable(
   ctx.lineTo(bottomLeftCorner.x, bottomLeftCorner.y);
   ctx.closePath();
   ctx.stroke();
-  return corners;
+  return displayCorners;
 }
 
 export interface DetectOptions {
