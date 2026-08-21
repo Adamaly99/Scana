@@ -262,7 +262,15 @@ export default function DocumentDetailPage() {
       />
 
       {currentPage && previewUrl && (
-        <OcrSheet open={ocrOpen} onClose={() => setOcrOpen(false)} imageDataUrl={previewUrl} />
+        <OcrSheet
+          open={ocrOpen}
+          onClose={() => setOcrOpen(false)}
+          imageDataUrl={previewUrl}
+          pageId={currentPage.id}
+          filter={currentPage.filter}
+          width={currentPage.width}
+          height={currentPage.height}
+        />
       )}
     </div>
   );
