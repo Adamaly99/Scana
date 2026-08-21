@@ -45,3 +45,7 @@ next-env.d.ts
 /public/sw.js.map
 /public/swe-worker-*.js
 /public/swe-worker-*.js.map
+
+# OCR/OpenCV assets generated from pinned local dependencies
+/public/ocr/
+/public/opencv/

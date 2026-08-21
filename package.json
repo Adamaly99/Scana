@@ -4,9 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prepare:ocr": "node scripts/prepare-ocr-assets.mjs",
+    "prebuild": "pnpm run prepare:ocr",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint src"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -14,7 +16,11 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@sentry/nextjs": "^10.70.0",
     "@serwist/next": "^9.5.12",
+    "@techstark/opencv-js": "5.0.0-release.1",
+    "@tesseract.js-data/eng": "1.0.0",
+    "@tesseract.js-data/fra": "1.0.0",
     "clsx": "^2.1.1",
+    "idb": "8.0.0",
     "idb-keyval": "^6.3.0",
     "jscanify": "^1.4.3",
     "lucide-react": "^1.28.0",
@@ -24,6 +30,7 @@
     "react-dom": "19.2.4",
     "serwist": "^9.5.12",
     "tesseract.js": "^7.0.0",
+    "tesseract.js-core": "7.0.0",
     "zustand": "^5.0.14"
   },
   "devDependencies": {
