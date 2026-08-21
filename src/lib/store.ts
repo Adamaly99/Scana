@@ -86,6 +86,52 @@ function makeId(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+type LegacyPage = ScannedPage & { dataUrl?: string };
+type PersistedStoreState = {
+  pages?: LegacyPage[];
+  documents?: ScanDocument[];
+  quality?: ScanQuality;
+  pageFormat?: PageFormat;
+  hasSeenDataWarning?: boolean;
+};
+
+/**
+ * Les premières versions pouvaient conserver l’image dans l’état JSON sous dataUrl.
+ * La migration écrit chaque image en Blob avant de retirer la chaîne volumineuse,
+ * afin qu’une mise à jour ne rende pas les anciens documents invisibles.
+ */
+async function migratePersistedState(
+  persistedState: unknown,
+  version: number
+): Promise<PersistedStoreState> {
+  if (version >= 2 || !persistedState || typeof persistedState !== "object") {
+    return (persistedState ?? {}) as PersistedStoreState;
+  }
+
+  const state = persistedState as PersistedStoreState;
+  const migratedIds = new Set<string>();
+
+  const migratePage = async (page: LegacyPage): Promise<ScannedPage> => {
+    if (page.dataUrl && !migratedIds.has(page.id)) {
+      await saveImageBlob(page.id, await dataUrlToBlob(page.dataUrl));
+      migratedIds.add(page.id);
+    }
+    const metadata = { ...page };
+    delete metadata.dataUrl;
+    return metadata;
+  };
+
+  const pages = await Promise.all((state.pages ?? []).map(migratePage));
+  const documents = await Promise.all(
+    (state.documents ?? []).map(async (document) => ({
+      ...document,
+      pages: await Promise.all(document.pages.map(migratePage)),
+    }))
+  );
+
+  return { ...state, pages, documents };
+}
+
 export const useScanStore = create<ScanStore>()(
   persist(
     (set, get) => ({
@@ -227,6 +273,8 @@ export const useScanStore = create<ScanStore>()(
     }),
     {
       name: "scana-store",
+      version: 2,
+      migrate: migratePersistedState,
       storage: createJSONStorage(() => idbStorage),
       partialize: (state) => ({
         pages: state.pages,
