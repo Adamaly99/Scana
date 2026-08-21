@@ -1,4 +1,4 @@
-const OPENCV_SRC = "https://docs.opencv.org/4.7.0/opencv.js";
+const OPENCV_SRC = "/opencv/opencv.js";
 const SCRIPT_ID = "opencv-js-runtime";
 
 let loadingPromise: Promise<void> | null = null;
@@ -6,7 +6,7 @@ let loadingPromise: Promise<void> | null = null;
 /**
  * Charge opencv.js (une seule fois, mise en cache via loadingPromise) et résout
  * seulement quand le runtime WASM est réellement prêt (cv.Mat existe).
- * Rejette si le script échoue à charger (ex: pas de connexion).
+ * Rejette si l’asset local échoue à charger.
  */
 export function loadOpenCv(): Promise<void> {
   if (typeof window === "undefined") {
@@ -51,7 +51,7 @@ export function loadOpenCv(): Promise<void> {
     script.onload = finalizeWhenReady;
     script.onerror = () => {
       loadingPromise = null;
-      reject(new Error("Échec du chargement d'OpenCV.js — vérifie ta connexion internet."));
+      reject(new Error("Échec du chargement local d’OpenCV.js."));
     };
     document.body.appendChild(script);
   });
