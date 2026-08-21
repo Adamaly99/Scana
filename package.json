@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint"
   },
@@ -13,6 +13,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@sentry/nextjs": "^10.70.0",
+    "@serwist/next": "^9.5.12",
     "clsx": "^2.1.1",
     "idb-keyval": "^6.3.0",
     "jscanify": "^1.4.3",
@@ -21,6 +22,7 @@
     "pdf-lib": "^1.17.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "serwist": "^9.5.12",
     "tesseract.js": "^7.0.0",
     "zustand": "^5.0.14"
   },
