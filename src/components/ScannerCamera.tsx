@@ -37,6 +37,24 @@ interface ScannerCameraProps {
   onCapture: (result: CaptureResult) => void;
 }
 
+function cameraErrorMessage(error: unknown): string {
+  const name = error instanceof DOMException ? error.name : "";
+  switch (name) {
+    case "NotAllowedError":
+      return "L’accès à la caméra est refusé. Autorise la caméra pour ce site dans les réglages du navigateur, puis réessaie.";
+    case "NotFoundError":
+      return "Aucune caméra disponible sur cet appareil. Vérifie qu’une caméra est bien connectée et réessaie.";
+    case "NotReadableError":
+      return "La caméra est déjà utilisée par une autre application. Ferme-la, puis réessaie.";
+    case "OverconstrainedError":
+      return "La caméra ne prend pas en charge les réglages demandés. Nous allons réessayer avec un mode compatible.";
+    case "SecurityError":
+      return "Le navigateur bloque l’accès caméra. Ouvre Scana depuis son adresse HTTPS officielle.";
+    default:
+      return "Impossible d’accéder à la caméra. Vérifie les permissions du navigateur et réessaie.";
+  }
+}
+
 export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
   const { status: cvStatus, errorMessage: cvError } = useOpenCv();
   const quality = useScanStore((s) => s.quality);
@@ -47,9 +65,12 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
   const streamRef = useRef<MediaStream | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const scannerRef = useRef<any>(null);
-  const detectionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const lastDetectionAtRef = useRef(0);
   const detectionBusyRef = useRef(false);
+  const capturingRef = useRef(false);
   const lastCornersRef = useRef<Corners | null>(null);
+  const displayedCornersRef = useRef<Corners | null>(null);
   const stableSinceRef = useRef<number | null>(null);
   const isStableRef = useRef(false);
 
@@ -58,13 +79,15 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
   const [capturing, setCapturing] = useState(false);
   const [captureNotice, setCaptureNotice] = useState<string | null>(null);
   const [isStable, setIsStable] = useState(false);
+  const [cameraAttempt, setCameraAttempt] = useState(0);
 
-  // 1. Démarre la caméra dès le montage (en parallèle du chargement d'OpenCV)
   useEffect(() => {
     let cancelled = false;
 
     const start = async () => {
       if (typeof window === "undefined") return;
+      setCameraStatus("requesting");
+      setCameraErrorMsg(null);
 
       if (!window.isSecureContext) {
         throw Object.assign(new Error("insecure"), { code: "insecure" as const });
@@ -73,54 +96,65 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
         throw Object.assign(new Error("unsupported"), { code: "unsupported" as const });
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: "environment" },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-        },
-        audio: false,
-      });
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+            frameRate: { ideal: 30, max: 30 },
+          },
+          audio: false,
+        });
+      } catch (error) {
+        // Certains navigateurs refusent une contrainte de résolution trop ambitieuse.
+        // Le second essai garde la caméra mobile fonctionnelle avec des contraintes minimales.
+        if (error instanceof DOMException && error.name === "OverconstrainedError") {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: "environment" } },
+            audio: false,
+          });
+        } else {
+          throw error;
+        }
+      }
 
       if (cancelled) {
-        stream.getTracks().forEach((t) => t.stop());
+        stream.getTracks().forEach((track) => track.stop());
         return;
       }
+
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(() => undefined);
       }
       setCameraStatus("granted");
+      setCameraErrorMsg(null);
     };
 
-    start().catch((err: Error & { code?: string }) => {
+    start().catch((error: Error & { code?: string }) => {
       if (cancelled) return;
-      if (err.code === "insecure") {
+      if (error.code === "insecure") {
         setCameraStatus("unsupported");
-        setCameraErrorMsg(
-          "La caméra nécessite une connexion HTTPS (ou localhost). Déploie sur Vercel ou teste en localhost."
-        );
-      } else if (err.code === "unsupported") {
+        setCameraErrorMsg("La caméra nécessite une connexion HTTPS ou localhost.");
+      } else if (error.code === "unsupported") {
         setCameraStatus("unsupported");
-        setCameraErrorMsg("Ce navigateur ne supporte pas l'accès caméra.");
+        setCameraErrorMsg("Ce navigateur ne supporte pas l’accès caméra.");
       } else {
         setCameraStatus("denied");
-        setCameraErrorMsg(
-          err.name === "NotAllowedError"
-            ? "Accès caméra refusé. Autorise la caméra dans les réglages du navigateur."
-            : "Impossible d'accéder à la caméra sur cet appareil."
-        );
+        setCameraErrorMsg(cameraErrorMessage(error));
       }
     });
 
     return () => {
       cancelled = true;
-      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     };
-  }, []);
+  }, [cameraAttempt]);
 
-  // 2. Instancie jscanify une fois OpenCV prêt
   useEffect(() => {
     if (cvStatus !== "ready") return;
     let active = true;
@@ -129,12 +163,10 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
     });
     return () => {
       active = false;
+      scannerRef.current = null;
     };
   }, [cvStatus]);
 
-  // 3. Boucle de détection live (throttled) — dessine juste le contour sur un calque
-  // transparent superposé à la vidéo. La vidéo elle-même reste toujours fluide,
-  // indépendamment du rythme de détection.
   useEffect(() => {
     if (cvStatus !== "ready" || cameraStatus !== "granted") return;
 
@@ -142,103 +174,110 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
     const overlayCanvas = overlayCanvasRef.current;
     if (!video || !overlayCanvas) return;
 
-    const tick = () => {
-      // Empêche les détections de s'empiler si un appareil est trop lent pour suivre
-      // le rythme des 250ms — c'était la cause probable des formes qui s'affolent.
-      if (detectionBusyRef.current) return;
+    let active = true;
+    lastDetectionAtRef.current = 0;
 
-      const scanner = scannerRef.current;
-      if (!scanner || video.readyState < video.HAVE_CURRENT_DATA) return;
-      if (!video.videoWidth || !video.videoHeight) return;
+    const detectFrame = (timestamp: number) => {
+      if (!active) return;
+      if (timestamp - lastDetectionAtRef.current >= DETECTION_INTERVAL_MS) {
+        lastDetectionAtRef.current = timestamp;
 
-      const scale = PREVIEW_MAX_WIDTH / video.videoWidth;
-      const w = PREVIEW_MAX_WIDTH;
-      const h = Math.round(video.videoHeight * scale);
+        if (!detectionBusyRef.current && !capturingRef.current) {
+          const scanner = scannerRef.current;
+          if (scanner && video.readyState >= video.HAVE_CURRENT_DATA && video.videoWidth && video.videoHeight) {
+            const width = Math.min(PREVIEW_MAX_WIDTH, video.videoWidth);
+            const height = Math.max(1, Math.round(video.videoHeight * (width / video.videoWidth)));
 
-      if (!workingCanvasRef.current) {
-        workingCanvasRef.current = document.createElement("canvas");
-      }
-      const working = workingCanvasRef.current;
-      working.width = w;
-      working.height = h;
-      const workingCtx = working.getContext("2d");
-      if (!workingCtx) return;
-      workingCtx.drawImage(video, 0, 0, w, h);
+            if (!workingCanvasRef.current) workingCanvasRef.current = document.createElement("canvas");
+            const working = workingCanvasRef.current;
+            working.width = width;
+            working.height = height;
+            const workingCtx = working.getContext("2d", { willReadFrequently: true });
 
-      // Le calque transparent doit avoir la même résolution interne que le canvas
-      // d'analyse pour que les coordonnées du contour tombent au bon endroit —
-      // redimensionner efface le canvas, donc on ne le fait que si ça a changé.
-      if (overlayCanvas.width !== w || overlayCanvas.height !== h) {
-        overlayCanvas.width = w;
-        overlayCanvas.height = h;
-      }
+            if (workingCtx) {
+              workingCtx.drawImage(video, 0, 0, width, height);
+              if (overlayCanvas.width !== width || overlayCanvas.height !== height) {
+                overlayCanvas.width = width;
+                overlayCanvas.height = height;
+              }
 
-      detectionBusyRef.current = true;
-      try {
-        const corners = highlightPaperStable(scanner, working, overlayCanvas, {
-          color: ACCENT_COLOR,
-          thickness: 4,
-        });
+              detectionBusyRef.current = true;
+              try {
+                const corners = highlightPaperStable(scanner, working, overlayCanvas, {
+                  color: ACCENT_COLOR,
+                  thickness: 4,
+                  previousCorners: displayedCornersRef.current,
+                  smoothing: 0.35,
+                });
+                const now = performance.now();
 
-        const now = Date.now();
+                if (!corners) {
+                  lastCornersRef.current = null;
+                  displayedCornersRef.current = null;
+                  stableSinceRef.current = null;
+                  if (isStableRef.current) {
+                    isStableRef.current = false;
+                    setIsStable(false);
+                  }
+                } else {
+                  displayedCornersRef.current = corners;
+                  const previous = lastCornersRef.current;
+                  const closeEnough = previous && cornersAreClose(previous, corners, STABILITY_TOLERANCE_PX);
+                  if (!closeEnough) stableSinceRef.current = now;
+                  lastCornersRef.current = corners;
 
-        if (!corners) {
-          // Rien détecté cette frame : le minuteur de stabilité repart de zéro.
-          lastCornersRef.current = null;
-          stableSinceRef.current = null;
-          if (isStableRef.current) {
-            isStableRef.current = false;
-            setIsStable(false);
-          }
-        } else {
-          const last = lastCornersRef.current;
-          const closeEnough = last && cornersAreClose(last, corners, STABILITY_TOLERANCE_PX);
-
-          if (!closeEnough) {
-            // Le contour a "sauté" (ou c'est la première détection) : redémarre le minuteur.
-            stableSinceRef.current = now;
-          }
-          lastCornersRef.current = corners;
-
-          const stableDuration = now - (stableSinceRef.current ?? now);
-          const nowStable = stableDuration >= STABILITY_DURATION_MS;
-          if (nowStable !== isStableRef.current) {
-            isStableRef.current = nowStable;
-            setIsStable(nowStable);
+                  const stableDuration = now - (stableSinceRef.current ?? now);
+                  const nextStable = stableDuration >= STABILITY_DURATION_MS;
+                  if (nextStable !== isStableRef.current) {
+                    isStableRef.current = nextStable;
+                    setIsStable(nextStable);
+                  }
+                }
+              } catch {
+                // Une frame OpenCV ratée ne doit jamais interrompre le flux vidéo.
+              } finally {
+                detectionBusyRef.current = false;
+              }
+            }
           }
         }
-      } catch {
-        // Une frame ratée ne doit jamais casser la boucle de détection.
-      } finally {
-        detectionBusyRef.current = false;
       }
+      animationFrameRef.current = requestAnimationFrame(detectFrame);
     };
 
-    detectionTimerRef.current = setInterval(tick, DETECTION_INTERVAL_MS);
+    animationFrameRef.current = requestAnimationFrame(detectFrame);
     return () => {
-      if (detectionTimerRef.current) clearInterval(detectionTimerRef.current);
-      // Repart de zéro à chaque (re)montage de la boucle (ex: retour sur l'écran caméra).
+      active = false;
+      if (animationFrameRef.current !== null) cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
       lastCornersRef.current = null;
+      displayedCornersRef.current = null;
       stableSinceRef.current = null;
       isStableRef.current = false;
       setIsStable(false);
     };
   }, [cvStatus, cameraStatus]);
 
+  const handleRetry = useCallback(() => {
+    if (cvStatus === "error") {
+      window.location.reload();
+      return;
+    }
+    setCaptureNotice(null);
+    setCameraAttempt((attempt) => attempt + 1);
+  }, [cvStatus]);
+
   const handleCapture = useCallback(() => {
     const video = videoRef.current;
     const scanner = scannerRef.current;
-    if (!video || !scanner || capturing) return;
+    if (!video || !scanner || capturingRef.current) return;
     if (!video.videoWidth || !video.videoHeight) return;
 
+    capturingRef.current = true;
     setCapturing(true);
     setCaptureNotice(null);
-    lastCornersRef.current = null;
-    stableSinceRef.current = null;
-    isStableRef.current = false;
     setIsStable(false);
 
-    // Petite pause pour laisser l'UI afficher l'état "capturing" avant le calcul (peut prendre qq centaines de ms)
     requestAnimationFrame(() => {
       try {
         const fullCanvas = document.createElement("canvas");
@@ -248,16 +287,11 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
         if (!ctx) throw new Error("Canvas indisponible");
         ctx.drawImage(video, 0, 0);
 
-        // La photo brute est TOUJOURS conservée — c'est elle qui permet le recadrage
-        // manuel si l'auto-détection échoue ou tombe à côté.
         const rawFrameDataUrl = fullCanvas.toDataURL("image/jpeg", 0.92);
         const { width: outputWidth, height: outputHeight } = OUTPUT_DIMENSIONS[quality];
-
         const corners = detectCorners(scanner, fullCanvas);
 
         if (!corners) {
-          // Plus de cul-de-sac "réessaie" : on part quand même en review, avec
-          // un recadrage manuel à faire (aucun contour n'a pu servir de point de départ).
           onCapture({
             croppedDataUrl: null,
             rawFrameDataUrl,
@@ -270,7 +304,6 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
 
         const extracted = warpToCorners(fullCanvas, corners, outputWidth, outputHeight);
         const croppedDataUrl = extracted.toDataURL("image/jpeg", JPEG_QUALITY[quality]);
-
         onCapture({
           croppedDataUrl,
           rawFrameDataUrl,
@@ -279,38 +312,34 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
           height: outputHeight,
         });
       } catch {
-        setCaptureNotice("La capture a échoué. Réessaie.");
+        setCaptureNotice("La capture a échoué. Réessaie ou utilise Ajuster le cadrage.");
       } finally {
+        capturingRef.current = false;
         setCapturing(false);
       }
     });
-  }, [capturing, onCapture, quality]);
+  }, [onCapture, quality]);
 
   const isLoading = cvStatus === "loading" || cameraStatus === "requesting";
-  const hasBlockingError =
-    cvStatus === "error" || cameraStatus === "denied" || cameraStatus === "unsupported";
+  const hasBlockingError = cvStatus === "error" || cameraStatus === "denied" || cameraStatus === "unsupported";
+  const errorMessage = cvStatus === "error" ? cvError : cameraErrorMsg;
 
   return (
-    <div className="relative flex-1 flex flex-col bg-camera-bg">
-      <div className="relative flex-1 flex items-center justify-center overflow-hidden">
-        <div className="relative">
-          <video
-            ref={videoRef}
-            autoPlay
-            muted
-            playsInline
-            className="block max-h-full max-w-full rounded-2xl"
-          />
+    <div className="relative flex flex-1 flex-col bg-camera-bg">
+      <div className="relative flex flex-1 items-center justify-center overflow-hidden">
+        <div className="relative max-h-full max-w-full">
+          <video ref={videoRef} autoPlay muted playsInline className="block max-h-full max-w-full rounded-2xl" />
           <canvas
             ref={overlayCanvasRef}
+            aria-hidden="true"
             className="pointer-events-none absolute inset-0 h-full w-full rounded-2xl"
           />
         </div>
 
         {isLoading && !hasBlockingError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-camera-bg">
-            <div className="h-8 w-8 rounded-full border-2 border-camera-line border-t-accent animate-spin" />
-            <p className="text-xs font-medium text-camera-ink-dim tracking-wide">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-camera-line border-t-accent" />
+            <p className="text-xs font-medium tracking-wide text-camera-ink-dim">
               {cvStatus !== "ready" ? "CHARGEMENT DU MOTEUR DE SCAN…" : "ACCÈS CAMÉRA…"}
             </p>
           </div>
@@ -318,8 +347,15 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
 
         {hasBlockingError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-camera-bg px-8 text-center">
-            <p className="text-camera-ink font-semibold">Oups.</p>
-            <p className="text-sm text-camera-ink-dim">{cameraErrorMsg ?? cvError}</p>
+            <p className="font-semibold text-camera-ink">Accès caméra indisponible</p>
+            <p className="text-sm text-camera-ink-dim">{errorMessage ?? "Une erreur est survenue."}</p>
+            <button
+              type="button"
+              onClick={handleRetry}
+              className="mt-2 rounded-xl bg-accent px-5 py-3 text-sm font-bold text-accent-ink active:scale-95"
+            >
+              Réessayer
+            </button>
           </div>
         )}
       </div>
@@ -332,16 +368,17 @@ export default function ScannerCamera({ onCapture }: ScannerCameraProps) {
 
       <div className="flex items-center justify-center pb-10 pt-4">
         <button
+          type="button"
           onClick={handleCapture}
           disabled={isLoading || hasBlockingError || capturing}
           aria-label={isStable ? "Document stable, capturer" : "Capturer le document"}
-          className={`relative h-20 w-20 rounded-full border-4 border-camera-ink/80 transition duration-200 disabled:cursor-not-allowed disabled:opacity-30 active:scale-95 ${
+          className={`relative h-20 w-20 rounded-full border-4 border-camera-ink/80 transition duration-200 active:scale-95 disabled:cursor-not-allowed disabled:opacity-30 ${
             isStable ? "bg-success" : "bg-accent"
           }`}
         >
           {capturing && (
             <span className="absolute inset-0 flex items-center justify-center">
-              <span className="h-6 w-6 rounded-full border-2 border-accent-ink border-t-transparent animate-spin" />
+              <span className="h-6 w-6 animate-spin rounded-full border-2 border-accent-ink border-t-transparent" />
             </span>
           )}
         </button>
