@@ -2,7 +2,7 @@ import { del as legacyDel, get as legacyGet } from "idb-keyval";
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 
 const DB_NAME = "scana-local-db";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const MASTER_KEY_ID = "master-aes-gcm-256";
 
 interface MetaRecord {
@@ -17,6 +17,15 @@ interface ImageRecord {
   ciphertext: ArrayBuffer;
   mimeType: string;
   size: number;
+  savedAt: number;
+}
+
+interface OcrRecord {
+  id: string;
+  /** Identifiant opaque de page utilisé uniquement pour purger le cache associé. */
+  pageId: string;
+  iv: Uint8Array;
+  ciphertext: ArrayBuffer;
   savedAt: number;
 }
 
@@ -46,7 +55,7 @@ interface ScanaDatabase extends DBSchema {
   };
   ocr: {
     key: string;
-    value: LocalOcrResult;
+    value: OcrRecord;
     indexes: { "by-page": string };
   };
   keys: {
@@ -63,7 +72,9 @@ function isBrowser(): boolean {
 }
 
 function requireBrowser(): void {
-  if (!isBrowser()) throw new Error("Le stockage local sécurisé est disponible uniquement dans le navigateur.");
+  if (!isBrowser()) {
+    throw new Error("Le stockage local sécurisé est disponible uniquement dans le navigateur.");
+  }
 }
 
 function toArrayBuffer(value: ArrayBuffer | Uint8Array): ArrayBuffer {
@@ -74,14 +85,26 @@ function toArrayBuffer(value: ArrayBuffer | Uint8Array): ArrayBuffer {
 async function getDatabase(): Promise<IDBPDatabase<ScanaDatabase>> {
   requireBrowser();
   databasePromise ??= openDB<ScanaDatabase>(DB_NAME, DB_VERSION, {
-    upgrade(db) {
-      if (!db.objectStoreNames.contains("meta")) db.createObjectStore("meta", { keyPath: "key" });
-      if (!db.objectStoreNames.contains("images")) db.createObjectStore("images", { keyPath: "id" });
+    upgrade(db, oldVersion) {
+      if (!db.objectStoreNames.contains("meta")) {
+        db.createObjectStore("meta", { keyPath: "key" });
+      }
+      if (!db.objectStoreNames.contains("images")) {
+        db.createObjectStore("images", { keyPath: "id" });
+      }
+
+      // Version 1 stored OCR fields in clear text. Discard only that cache during
+      // migration; source images and the encrypted application state are retained.
+      if (oldVersion < 2 && db.objectStoreNames.contains("ocr")) {
+        db.deleteObjectStore("ocr");
+      }
       if (!db.objectStoreNames.contains("ocr")) {
         const store = db.createObjectStore("ocr", { keyPath: "id" });
         store.createIndex("by-page", "pageId");
       }
-      if (!db.objectStoreNames.contains("keys")) db.createObjectStore("keys", { keyPath: "id" });
+      if (!db.objectStoreNames.contains("keys")) {
+        db.createObjectStore("keys", { keyPath: "id" });
+      }
     },
   });
   return databasePromise;
@@ -93,6 +116,7 @@ async function getMasterKey(): Promise<CryptoKey> {
     const db = await getDatabase();
     const existing = await db.get("keys", MASTER_KEY_ID);
     if (existing?.key) return existing.key;
+
     const key = await window.crypto.subtle.generateKey(
       { name: "AES-GCM", length: 256 },
       false,
@@ -104,13 +128,21 @@ async function getMasterKey(): Promise<CryptoKey> {
   return masterKeyPromise;
 }
 
-async function encryptBytes(bytes: ArrayBuffer): Promise<{ iv: Uint8Array; ciphertext: ArrayBuffer }> {
+async function encryptBytes(
+  bytes: ArrayBuffer,
+): Promise<{ iv: Uint8Array; ciphertext: ArrayBuffer }> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await getMasterKey(), bytes);
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    await getMasterKey(),
+    bytes,
+  );
   return { iv, ciphertext };
 }
 
-async function decryptBytes(record: Pick<ImageRecord, "iv" | "ciphertext">): Promise<ArrayBuffer> {
+async function decryptBytes(
+  record: Pick<MetaRecord, "iv" | "ciphertext">,
+): Promise<ArrayBuffer> {
   return crypto.subtle.decrypt(
     { name: "AES-GCM", iv: toArrayBuffer(record.iv) },
     await getMasterKey(),
@@ -146,6 +178,25 @@ export async function deleteEncryptedState(name: string): Promise<void> {
   if (!isBrowser()) return;
   const db = await getDatabase();
   await db.delete("meta", name);
+}
+
+/**
+ * Efface toutes les données Scana de cet appareil. La clé maître est supprimée
+ * avec les données afin qu'aucun ancien blob ne puisse être déchiffré ensuite.
+ */
+export async function clearLocalData(): Promise<void> {
+  if (!isBrowser()) return;
+  const db = await getDatabase();
+  const tx = db.transaction(["meta", "images", "ocr", "keys"], "readwrite");
+  await Promise.all([
+    tx.objectStore("meta").clear(),
+    tx.objectStore("images").clear(),
+    tx.objectStore("ocr").clear(),
+    tx.objectStore("keys").clear(),
+  ]);
+  await tx.done;
+  await legacyDel("scana-store");
+  masterKeyPromise = undefined;
 }
 
 export async function saveImageBlob(pageId: string, blob: Blob): Promise<void> {
@@ -191,17 +242,37 @@ function ocrId(pageId: string, cacheKey: string): string {
   return `${pageId}:${cacheKey}`;
 }
 
-export async function getLocalOcrResult(pageId: string, cacheKey: string): Promise<LocalOcrResult | undefined> {
+function encodeOcrResult(result: Omit<LocalOcrResult, "id">): ArrayBuffer {
+  return toArrayBuffer(new TextEncoder().encode(JSON.stringify(result)));
+}
+
+async function decodeOcrResult(record: OcrRecord): Promise<LocalOcrResult> {
+  const bytes = await decryptBytes(record);
+  const result = JSON.parse(new TextDecoder().decode(bytes)) as Omit<LocalOcrResult, "id">;
+  return { ...result, id: record.id };
+}
+
+export async function getLocalOcrResult(
+  pageId: string,
+  cacheKey: string,
+): Promise<LocalOcrResult | undefined> {
   if (!isBrowser()) return undefined;
   const db = await getDatabase();
-  return db.get("ocr", ocrId(pageId, cacheKey));
+  const record = await db.get("ocr", ocrId(pageId, cacheKey));
+  return record ? decodeOcrResult(record) : undefined;
 }
 
 export async function saveLocalOcrResult(
   result: Omit<LocalOcrResult, "id">,
 ): Promise<void> {
   const db = await getDatabase();
-  await db.put("ocr", { ...result, id: ocrId(result.pageId, result.cacheKey) });
+  const encrypted = await encryptBytes(encodeOcrResult(result));
+  await db.put("ocr", {
+    id: ocrId(result.pageId, result.cacheKey),
+    pageId: result.pageId,
+    ...encrypted,
+    savedAt: Date.now(),
+  });
 }
 
 export async function deleteLocalOcrResults(pageId: string): Promise<void> {
@@ -213,10 +284,14 @@ export async function deleteLocalOcrResults(pageId: string): Promise<void> {
   await tx.done;
 }
 
-export async function encryptForStorage(bytes: ArrayBuffer | Uint8Array): Promise<{ iv: Uint8Array; ciphertext: ArrayBuffer }> {
+export async function encryptForStorage(
+  bytes: ArrayBuffer | Uint8Array,
+): Promise<{ iv: Uint8Array; ciphertext: ArrayBuffer }> {
   return encryptBytes(toArrayBuffer(bytes));
 }
 
-export async function decryptForStorage(record: Pick<ImageRecord, "iv" | "ciphertext">): Promise<ArrayBuffer> {
+export async function decryptForStorage(
+  record: Pick<ImageRecord, "iv" | "ciphertext">,
+): Promise<ArrayBuffer> {
   return decryptBytes(record);
 }
