@@ -1,9 +1,34 @@
 "use client";
 
-import { ExternalLink, HardDrive, LockKeyhole, ShieldCheck, UserRound } from "lucide-react";
+import { ExternalLink, HardDrive, LockKeyhole, ShieldCheck, Trash2, UserRound } from "lucide-react";
 import Link from "next/link";
+import { useState } from "react";
+import { clearLocalData } from "@/lib/local-db";
 
 export default function ProfilePage() {
+  const [isClearing, setIsClearing] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
+
+  const handleClearLocalData = async () => {
+    if (
+      !window.confirm(
+        "Effacer définitivement tous les documents, résultats OCR et réglages de cet appareil ? Cette action est irréversible.",
+      )
+    ) {
+      return;
+    }
+
+    setIsClearing(true);
+    setClearError(null);
+    try {
+      await clearLocalData();
+      window.location.reload();
+    } catch {
+      setClearError("La suppression n’a pas pu être terminée. Réessaie.");
+      setIsClearing(false);
+    }
+  };
+
   return (
     <div className="flex min-h-full flex-col bg-page">
       <header className="border-b border-line bg-card px-5 py-4">
@@ -45,6 +70,30 @@ export default function ProfilePage() {
             <p className="text-sm leading-6 text-ink-dim">
               La synchronisation cloud et les abonnements ne sont pas activés dans cette version.
             </p>
+          </div>
+          <Link href="/privacy" className="inline-block text-sm font-semibold text-accent hover:underline">
+            Lire la politique de confidentialité
+          </Link>
+        </section>
+
+        <section className="rounded-2xl border border-red-200 bg-card p-4 shadow-sm">
+          <div className="flex items-start gap-3">
+            <Trash2 size={18} className="mt-0.5 shrink-0 text-red-600" />
+            <div>
+              <h2 className="font-semibold text-ink">Supprimer les données locales</h2>
+              <p className="mt-2 text-sm leading-6 text-ink-dim">
+                Cette action supprime définitivement les documents, les images chiffrées, le cache OCR, les réglages et la clé de chiffrement de cet appareil.
+              </p>
+              <button
+                type="button"
+                onClick={handleClearLocalData}
+                disabled={isClearing}
+                className="mt-4 rounded-xl border border-red-300 px-4 py-3 text-sm font-bold text-red-700 transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isClearing ? "Suppression…" : "Effacer définitivement"}
+              </button>
+              {clearError ? <p className="mt-3 text-sm font-medium text-red-700">{clearError}</p> : null}
+            </div>
           </div>
         </section>
 
