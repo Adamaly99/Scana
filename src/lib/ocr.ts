@@ -1,5 +1,38 @@
 import { createWorker, type LoggerMessage } from "tesseract.js";
+import { getOcrConfig, type OcrConfig } from './ocr/config';
+import { preprocessForOcr } from './ocr/preprocess';
 
+export async function runOcr(
+  image: Blob | string,
+  options: OcrRunOptions = {},
+  config?: OcrConfig
+): Promise<OcrRunResult> {
+  const { signal, onProgress } = options;
+  assertNotAborted(signal);
+
+  const ocrConfig = config || getOcrConfig();
+  const preparedImage = await preprocessForOcr(image);
+
+  const worker = await createWorker(ocrConfig.langs, undefined, {
+    workerPath: "/ocr/v7/worker.min.js",
+    corePath: "/ocr/v7/core",
+    langPath: "/ocr/v7/lang/",
+    cachePath: "/ocr/v7/cache",
+    cacheMethod: "write",
+    workerBlobURL: false,
+    gzip: true,
+    logger: (message) => handleProgress(message, onProgress),
+    errorHandler: (err) => console.error('Tesseract error:', err)
+  });
+
+  // Set PSM mode
+  await worker.setParameters({
+    tessedit_pageseg_mode: ocrConfig.psm,
+    ...(ocrConfig.whitelist ? { tessedit_char_whitelist: ocrConfig.whitelist } : {})
+  });
+
+  // ... reste identique
+}
 export interface OcrRunResult {
   text: string;
   confidence: number | null;
