@@ -1,17 +1,32 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { loadOpenCv } from "@/lib/opencv-loader";
 
-export type OpenCvStatus = "loading" | "ready" | "error";
+export type OpenCvStatus = "idle" | "loading" | "ready" | "error";
 
-export function useOpenCv(): { status: OpenCvStatus; errorMessage: string | null } {
-  const [status, setStatus] = useState<OpenCvStatus>("loading");
+export function useOpenCv(preload = false): { status: OpenCvStatus; errorMessage: string | null } {
+  const [status, setStatus] = useState<OpenCvStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const loadedRef = useRef(false);
 
   useEffect(() => {
+    if (!preload || loadedRef.current) return;
+    
+    // Préchargement silencieux
+    if ('requestIdleCallback' in window) {
+      window.requestIdleCallback(() => {
+        loadOpenCv().catch(() => undefined);
+      }, { timeout: 5000 });
+    }
+  }, [preload]);
+
+  useEffect(() => {
+    if (loadedRef.current) return;
+    loadedRef.current = true;
     let cancelled = false;
 
+    setStatus("loading");
     loadOpenCv()
       .then(() => {
         if (!cancelled) setStatus("ready");
@@ -23,10 +38,8 @@ export function useOpenCv(): { status: OpenCvStatus; errorMessage: string | null
         }
       });
 
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
   return { status, errorMessage };
-}
+    }
