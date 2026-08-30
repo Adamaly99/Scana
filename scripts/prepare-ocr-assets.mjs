@@ -1,46 +1,67 @@
-import { cp, mkdir, rm } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+// scripts/prepare-ocr-assets.mjs
+import { mkdir, copyFile } from "fs/promises";
+import { existsSync } from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const publicOcrRoot = join(root, "public", "ocr");
-const publicOcr = join(publicOcrRoot, "v7");
-const publicOpenCv = join(root, "public", "opencv");
-const core = join(root, "node_modules", "tesseract.js-core");
-const tesseract = join(root, "node_modules", "tesseract.js", "dist");
-const fra = join(root, "node_modules", "@tesseract.js-data", "fra", "4.0.0", "fra.traineddata.gz");
-const eng = join(root, "node_modules", "@tesseract.js-data", "eng", "4.0.0", "eng.traineddata.gz");
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const ROOT = join(__dirname, "..");
+const DEST = join(ROOT, "public", "ocr", "v7");
 
-await rm(publicOcrRoot, { recursive: true, force: true });
-await rm(publicOpenCv, { recursive: true, force: true });
-await mkdir(join(publicOcr, "core"), { recursive: true });
-await mkdir(publicOpenCv, { recursive: true });
-await mkdir(join(publicOcr, "lang"), { recursive: true });
+const TESSERACT_ROOT = join(ROOT, "node_modules", "tesseract.js", "dist");
+const TESSDATA_ROOT = join(ROOT, "node_modules", "@tesseract.js-data");
 
-await cp(join(tesseract, "worker.min.js"), join(publicOcr, "worker.min.js"));
-await cp(
-  join(root, "node_modules", "@techstark", "opencv-js", "dist", "opencv.js"),
-  join(publicOpenCv, "opencv.js"),
-);
-
-for (const file of [
-  "tesseract-core.wasm.js",
-  "tesseract-core.wasm",
-  "tesseract-core-simd.wasm.js",
-  "tesseract-core-simd.wasm",
-  "tesseract-core-lstm.wasm.js",
-  "tesseract-core-lstm.wasm",
-  "tesseract-core-simd-lstm.wasm.js",
-  "tesseract-core-simd-lstm.wasm",
-  "tesseract-core-relaxedsimd-lstm.wasm.js",
-  "tesseract-core-relaxedsimd-lstm.wasm",
-  "tesseract-core-relaxedsimd.wasm.js",
-  "tesseract-core-relaxedsimd.wasm",
-]) {
-  await cp(join(core, file), join(publicOcr, "core", file));
+async function ensureDir(dir) {
+  if (!existsSync(dir)) {
+    await mkdir(dir, { recursive: true });
+  }
 }
 
-await cp(fra, join(publicOcr, "lang", "fra.traineddata.gz"));
-await cp(eng, join(publicOcr, "lang", "eng.traineddata.gz"));
+async function main() {
+  console.log("Preparing OCR assets...");
 
-console.log("OCR assets prepared in public/ocr");
+  await ensureDir(join(DEST, "core"));
+  await ensureDir(join(DEST, "lang"));
+  await ensureDir(join(DEST, "cache"));
+
+  // Copy worker
+  const workerSrc = join(TESSERACT_ROOT, "worker.min.js");
+  const workerDest = join(DEST, "worker.min.js");
+  if (existsSync(workerSrc)) {
+    await copyFile(workerSrc, workerDest);
+    console.log("✓ worker.min.js");
+  } else {
+    console.warn("✗ worker.min.js not found");
+  }
+
+  // Copy core files
+  const coreFiles = ["tesseract-core.wasm.js", "tesseract-core-simd.wasm.js"];
+  for (const file of coreFiles) {
+    const src = join(TESSERACT_ROOT, file);
+    const dest = join(DEST, "core", file);
+    if (existsSync(src)) {
+      await copyFile(src, dest);
+      console.log(`✓ core/${file}`);
+    }
+  }
+
+  // Copy language data
+  const langs = ["eng", "fra"];
+  for (const lang of langs) {
+    const src = join(TESSDATA_ROOT, lang, `${lang}.traineddata.gz`);
+    const dest = join(DEST, "lang", `${lang}.traineddata.gz`);
+    if (existsSync(src)) {
+      await copyFile(src, dest);
+      console.log(`✓ lang/${lang}.traineddata.gz`);
+    } else {
+      console.warn(`✗ lang/${lang}.traineddata.gz not found`);
+    }
+  }
+
+  console.log("OCR assets prepared.");
+}
+
+main().catch((err) => {
+  console.error("Failed to prepare OCR assets:", err);
+  process.exit(1);
+});
