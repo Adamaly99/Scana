@@ -1,0 +1,130 @@
+{
+  "metadata": {
+    "title": "Scana — Scanner & Éditeur PDF",
+    "description": "Scanner de documents et éditeur PDF, 100% hors-ligne, sans compte, sans publicité."
+  },
+  "home": {
+    "greeting": "Bonjour 👋",
+    "subtitle": "Prêt à scanner quelque chose d'important aujourd'hui ?",
+    "newScan": "Nouveau scan",
+    "newScanHint": "Document, reçu, carte d'identité…",
+    "recent": "Récents",
+    "seeAll": "Voir tout",
+    "emptyTitle": "Aucun document pour l'instant",
+    "emptyHint": "Scanne ton premier document, il apparaîtra ici.",
+    "dataWarningTitle": "À savoir avant de commencer",
+    "dataWarningBody": "Tes documents restent uniquement sur cet appareil — aucune sauvegarde ailleurs. Si tu supprimes Scana, changes de téléphone ou vides les données du navigateur, ils sont perdus définitivement. Pense à exporter ce qui compte.",
+    "understood": "Compris"
+  },
+  "scan": {
+    "back": "Retour à l'accueil",
+    "cameraLoading": "Chargement du moteur de scan…",
+    "cameraAccess": "Accès caméra…",
+    "capture": "Capturer le document",
+    "captureStable": "Document stable, capturer",
+    "cameraDenied": "Accès caméra indisponible",
+    "retry": "Réessayer",
+    "pagesCount": "{count} page",
+    "pagesCountPlural": "{count} pages"
+  },
+  "review": {
+    "retake": "Reprendre",
+    "keepPage": "Garder cette page",
+    "preparing": "Préparation…",
+    "saving": "Enregistrement…",
+    "crop": "Ajuster le cadrage",
+    "rotate": "Pivoter",
+    "filters": {
+      "color": "Couleur",
+      "gray": "Gris",
+      "bw": "N&B"
+    },
+    "cropTitle": "Ajuste les 4 coins du document",
+    "cropReset": "Réinitialiser le cadrage",
+    "cropConfirm": "Valider le recadrage",
+    "cropProcessing": "Traitement…"
+  },
+  "documents": {
+    "title": "Documents",
+    "searchPlaceholder": "Rechercher un document...",
+    "emptyTitle": "Aucun document pour l'instant",
+    "emptyHint": "Scanne ton premier document, il apparaîtra ici.",
+    "noResults": "Aucun document ne correspond à \"{query}\".",
+    "pdfLabel": "PDF",
+    "deleteConfirm": "Supprimer \"{name}\" ? Cette action est définitive.",
+    "pageCount": "{count} page",
+    "pageCountPlural": "{count} pages"
+  },
+  "documentDetail": {
+    "back": "Retour aux documents",
+    "notFound": "Document introuvable",
+    "notFoundHint": "Il a peut-être été supprimé.",
+    "library": "Retour à la bibliothèque",
+    "extractText": "Extraire le texte",
+    "share": "Partager",
+    "rotate": "Pivoter",
+    "rotating": "Rotation…",
+    "pageIndicator": "{current} / {total}",
+    "shareTitle": "Partager le document",
+    "exportPdf": "PDF",
+    "exportPdfHint": "Document complet",
+    "exportJpg": "JPG",
+    "exportJpgHint": "Page actuelle",
+    "exportPng": "PNG",
+    "exportPngHint": "Page actuelle",
+    "download": "Télécharger",
+    "shareAction": "Partager",
+    "exportError": "L'export a échoué. Réessaie."
+  },
+  "ocr": {
+    "title": "Texte extrait",
+    "localProcessing": "Traitement local, aucune image envoyée",
+    "preparing": "Préparation du moteur OCR local…",
+    "reading": "Lecture du texte… {progress}%",
+    "firstLaunchHint": "Le premier lancement peut être plus long. Le moteur et les modèles sont ensuite conservés par le navigateur.",
+    "emptyResult": "Aucun texte détecté sur cette page.",
+    "confidence": "Confiance moyenne : {confidence}% · Résultat conservé localement",
+    "copy": "Copier le texte",
+    "copied": "Copié !",
+    "clipboardError": "Le presse-papiers n'est pas disponible dans ce navigateur.",
+    "error": "Le moteur OCR local n'a pas pu terminer la lecture.",
+    "retry": "Fermer et réessayer"
+  },
+  "pageDrawer": {
+    "pagesCount": "{count} page scannée",
+    "pagesCountPlural": "{count} pages scannées",
+    "reorderHint": "MAINTIENS ET GLISSE POUR RÉORDONNER",
+    "documentName": "Nom du document",
+    "saveDocument": "Enregistrer le document ({count} page)",
+    "saveDocumentPlural": "Enregistrer le document ({count} pages)",
+    "saving": "Enregistrement… {done}/{total}",
+    "exportError": "L'export a échoué. Réessaie.",
+    "empty": "Aucune page pour l'instant. Scanne ton premier document."
+  },
+  "auth": {
+    "loginTitle": "Connexion",
+    "registerTitle": "Créer un compte",
+    "email": "Email",
+    "password": "Mot de passe",
+    "login": "Se connecter",
+    "register": "S'inscrire",
+    "noAccount": "Pas encore de compte ?",
+    "hasAccount": "Déjà un compte ?",
+    "recoveryTitle": "Récupération",
+    "recoveryPhraseTitle": "Phrase de récupération",
+    "recoveryPhraseBody": "Notez ces 12 mots dans un endroit sûr. Ils sont nécessaires pour restaurer vos documents sur un nouvel appareil.",
+    "iSavedIt": "J'ai sauvegardé",
+    "syncEnabled": "Synchronisation cloud activée",
+    "syncDisabled": "Synchronisation hors-ligne",
+    "lastSync": "Dernière sync : {date}",
+    "logout": "Déconnexion"
+  },
+  "common": {
+    "close": "Fermer",
+    "cancel": "Annuler",
+    "confirm": "Confirmer",
+    "delete": "Supprimer",
+    "edit": "Modifier",
+    "save": "Enregistrer"
+  }
+}
