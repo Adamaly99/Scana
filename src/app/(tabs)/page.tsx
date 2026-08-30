@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { Camera, Plus, TriangleAlert } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { useScanStore } from "@/lib/store";
 import DocumentCard from "@/components/DocumentCard";
 
 export default function HomePage() {
+  const t = useTranslations("home");
   const hasHydrated = useScanStore((s) => s.hasHydrated);
   const documents = useScanStore((s) => s.documents);
   const hasSeenDataWarning = useScanStore((s) => s.hasSeenDataWarning);
@@ -14,10 +16,8 @@ export default function HomePage() {
   return (
     <div className="flex min-h-full flex-col">
       <header className="px-6 pb-2 pt-6">
-        <p className="text-2xl font-extrabold text-ink">Bonjour 👋</p>
-        <p className="mt-1 text-sm text-ink-dim">
-          Prêt à scanner quelque chose d&apos;important aujourd&apos;hui ?
-        </p>
+        <p className="text-2xl font-extrabold text-ink">{t("greeting")}</p>
+        <p className="mt-1 text-sm text-ink-dim">{t("subtitle")}</p>
       </header>
 
       {hasHydrated && !hasSeenDataWarning && (
@@ -25,20 +25,15 @@ export default function HomePage() {
           <div className="flex items-start gap-2.5">
             <TriangleAlert size={18} className="mt-0.5 shrink-0 text-warning" />
             <div>
-              <p className="text-sm font-semibold text-ink">À savoir avant de commencer</p>
-              <p className="mt-1 text-xs leading-relaxed text-ink-dim">
-                Tes documents restent uniquement sur cet appareil — aucune sauvegarde
-                ailleurs. Si tu supprimes Scana, changes de téléphone ou vides les
-                données du navigateur, ils sont perdus définitivement. Pense à
-                exporter ce qui compte.
-              </p>
+              <p className="text-sm font-semibold text-ink">{t("dataWarningTitle")}</p>
+              <p className="mt-1 text-xs leading-relaxed text-ink-dim">{t("dataWarningBody")}</p>
             </div>
           </div>
           <button
             onClick={setHasSeenDataWarning}
             className="mt-3 rounded-full bg-accent px-4 py-2 text-xs font-bold text-accent-ink"
           >
-            Compris
+            {t("understood")}
           </button>
         </div>
       )}
@@ -52,20 +47,18 @@ export default function HomePage() {
             <Camera size={22} />
           </span>
           <span>
-            <span className="block text-base font-bold">Nouveau scan</span>
-            <span className="block text-xs opacity-90">
-              Document, reçu, carte d&apos;identité…
-            </span>
+            <span className="block text-base font-bold">{t("newScan")}</span>
+            <span className="block text-xs opacity-90">{t("newScanHint")}</span>
           </span>
         </Link>
       </div>
 
       <div className="flex-1 px-6 pt-8">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-ink">Récents</h2>
+          <h2 className="text-sm font-semibold text-ink">{t("recent")}</h2>
           {documents.length > 0 && (
             <Link href="/documents" className="text-xs font-medium text-accent">
-              Voir tout
+              {t("seeAll")}
             </Link>
           )}
         </div>
@@ -73,10 +66,8 @@ export default function HomePage() {
         {!hasHydrated ? null : documents.length === 0 ? (
           <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-line py-12 text-center">
             <Plus size={20} className="text-ink-dim" />
-            <p className="text-sm font-medium text-ink">Aucun document pour l&apos;instant</p>
-            <p className="px-8 text-xs text-ink-dim">
-              Scanne ton premier document, il apparaîtra ici.
-            </p>
+            <p className="text-sm font-medium text-ink">{t("emptyTitle")}</p>
+            <p className="px-8 text-xs text-ink-dim">{t("emptyHint")}</p>
           </div>
         ) : (
           <div className="flex flex-col gap-2.5 pb-6">
@@ -88,4 +79,4 @@ export default function HomePage() {
       </div>
     </div>
   );
-              }
+}
