@@ -37,32 +37,34 @@ export default function ReviewOverlay({ capture, onConfirm, onRetake }: ReviewOv
   // Si l'auto-détection a échoué (croppedDataUrl est null), on ouvre directement
   // l'ajustement manuel — il n'y a de toute façon rien d'autre à montrer.
   const [cropOpen, setCropOpen] = useState(capture.croppedDataUrl === null);
+const { apply: applyDebouncedFilter } = useDebouncedFilter();
 
-  useEffect(() => {
-    if (!croppedDataUrl) return;
-    let cancelled = false;
+useEffect(() => {
+  if (!croppedDataUrl) return;
+  let cancelled = false;
+  let cleanup: (() => void) | undefined;
 
-    // setRendering(true) différé d'un micro-tick pour ne jamais déclencher de
-    // setState de façon synchrone dans le corps de l'effet.
-    Promise.resolve().then(() => {
-      if (!cancelled) setRendering(true);
-    });
+  Promise.resolve().then(() => {
+    if (!cancelled) setRendering(true);
+  });
 
-    applyFilterToDataUrl(croppedDataUrl, filter)
-      .then((url) => {
-        if (!cancelled) setPreviewUrl(url);
-      })
-      .catch(() => {
-        if (!cancelled) setPreviewUrl(croppedDataUrl);
-      })
-      .finally(() => {
-        if (!cancelled) setRendering(false);
-      });
+  cleanup = applyDebouncedFilter(filter, croppedDataUrl, (url) => {
+    if (!cancelled) {
+      setPreviewUrl(url);
+      setRendering(false);
+    }
+  }, () => {
+    if (!cancelled) {
+      setPreviewUrl(croppedDataUrl);
+      setRendering(false);
+    }
+  });
 
-    return () => {
-      cancelled = true;
-    };
-  }, [croppedDataUrl, filter]);
+  return () => {
+    cancelled = true;
+    cleanup?.();
+  };
+}, [croppedDataUrl, filter, applyDebouncedFilter]);
 
   const handleCropConfirm = (newCroppedDataUrl: string) => {
     setCroppedDataUrl(newCroppedDataUrl);
