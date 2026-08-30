@@ -1,5 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
+import { NextIntlClientProvider } from "next-intl";
+import { getMessages } from "next-intl/server";
+import { notFound } from "next/navigation";
+import { routing } from "@/i18n/routing";
 import "./globals.css";
 import OfflineIndicator from "@/components/OfflineIndicator";
 
@@ -12,8 +16,7 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: "Scana — Scanner & Éditeur PDF",
-  description:
-    "Scanner de documents et éditeur PDF, 100% hors-ligne, sans compte, sans publicité.",
+  description: "Scanner de documents et éditeur PDF, 100% hors-ligne, sans compte, sans publicité.",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
@@ -25,13 +28,27 @@ export const viewport: Viewport = {
   themeColor: "#2563EB",
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({
+  children,
+  params: { locale }
+}: Readonly<{
+  children: React.ReactNode;
+  params: { locale: string };
+}>) {
+  if (!routing.locales.includes(locale as any)) {
+    notFound();
+  }
+  
+  const messages = await getMessages();
+
   return (
-    <html lang="fr" className={inter.variable}>
+    <html lang={locale} className={inter.variable} dir={locale === 'ar' ? 'rtl' : 'ltr'}>
       <body className="bg-page text-ink font-display">
-        <OfflineIndicator />
-        {children}
+        <NextIntlClientProvider messages={messages}>
+          <OfflineIndicator />
+          {children}
+        </NextIntlClientProvider>
       </body>
     </html>
   );
-}
+      }
