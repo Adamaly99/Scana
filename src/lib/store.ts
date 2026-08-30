@@ -20,6 +20,18 @@ export interface ScannedPage {
   height: number;
   createdAt: number;
 }
+interface ScanStore {
+  // ... existing fields ...
+  
+  // Auth & Cloud
+  user: { id: string; email: string } | null;
+  syncEnabled: boolean;
+  lastSyncAt: number | null;
+  setUser: (user: { id: string; email: string } | null) => void;
+  setSyncEnabled: (enabled: boolean) => void;
+  setLastSyncAt: (timestamp: number) => void;
+  logout: () => void;
+}
 
 /** Un document terminé et sauvegardé dans la bibliothèque (plusieurs pages fusionnées) */
 export interface ScanDocument {
@@ -107,6 +119,16 @@ async function migratePersistedState(
   if (version >= 2 || !persistedState || typeof persistedState !== "object") {
     return (persistedState ?? {}) as PersistedStoreState;
   }
+  partialize: (state) => ({
+  pages: state.pages,
+  documents: state.documents,
+  quality: state.quality,
+  pageFormat: state.pageFormat,
+  hasSeenDataWarning: state.hasSeenDataWarning,
+  user: state.user,
+  syncEnabled: state.syncEnabled,
+  lastSyncAt: state.lastSyncAt,
+}),
 
   const state = persistedState as PersistedStoreState;
   const migratedIds = new Set<string>();
@@ -120,7 +142,15 @@ async function migratePersistedState(
     delete metadata.dataUrl;
     return metadata;
   };
+  
+user: null,
+syncEnabled: false,
+lastSyncAt: null,
 
+setUser: (user) => set({ user }),
+setSyncEnabled: (syncEnabled) => set({ syncEnabled }),
+setLastSyncAt: (lastSyncAt) => set({ lastSyncAt }),
+logout: () => set({ user: null, syncEnabled: false, lastSyncAt: null }),
   const pages = await Promise.all((state.pages ?? []).map(migratePage));
   const documents = await Promise.all(
     (state.documents ?? []).map(async (document) => ({
