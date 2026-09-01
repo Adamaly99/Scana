@@ -1,24 +1,63 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+
 import { getImageBlob } from "@/lib/image-store";
 
-export function usePageImageUrl(pageId: string | undefined): string | null {
-  const [url, setUrl] = useState<string | null>(null);
-  const [isVisible, setIsVisible] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+export interface PageImageUrlResult {
+  url: string | null;
+  ref: React.RefObject<HTMLDivElement | null>;
+}
+
+export function usePageImageUrl(
+  pageId: string | undefined
+): PageImageUrlResult {
+  const [url, setUrl] =
+    useState<string | null>(null);
+
+  const [isVisible, setIsVisible] =
+    useState(false);
+
+  const ref =
+    useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) setIsVisible(true);
-      },
-      { rootMargin: "100px" }
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
+    const element = ref.current;
+
+    if (!element) {
+      return;
+    }
+
+    if (
+      typeof IntersectionObserver ===
+      "undefined"
+    ) {
+      setIsVisible(true);
+      return;
+    }
+
+    const observer =
+      new IntersectionObserver(
+        ([entry]) => {
+          if (entry?.isIntersecting) {
+            setIsVisible(true);
+            observer.disconnect();
+          }
+        },
+        {
+          rootMargin: "200px",
+        }
+      );
+
+    observer.observe(element);
+
+    return () => {
+      observer.disconnect();
+    };
   }, []);
 
   useEffect(() => {
@@ -26,20 +65,48 @@ export function usePageImageUrl(pageId: string | undefined): string | null {
       setUrl(null);
       return;
     }
+
     let cancelled = false;
     let objectUrl: string | null = null;
 
-    getImageBlob(pageId).then((blob) => {
-      if (cancelled || !blob) return;
-      objectUrl = URL.createObjectURL(blob);
-      setUrl(objectUrl);
-    });
+    getImageBlob(pageId)
+      .then((blob) => {
+        if (
+          cancelled ||
+          !blob
+        ) {
+          return;
+        }
+
+        objectUrl =
+          URL.createObjectURL(blob);
+
+        setUrl(objectUrl);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          console.error(
+            "Impossible de charger l'image:",
+            error
+          );
+
+          setUrl(null);
+        }
+      });
 
     return () => {
       cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+
+      if (objectUrl) {
+        URL.revokeObjectURL(
+          objectUrl
+        );
+      }
     };
   }, [pageId, isVisible]);
 
-  return { url, ref };
-      }
+  return {
+    url,
+    ref,
+  };
+}
