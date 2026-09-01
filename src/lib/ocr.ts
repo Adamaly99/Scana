@@ -1,38 +1,15 @@
-import { createWorker, type LoggerMessage } from "tesseract.js";
-import { getOcrConfig, type OcrConfig } from './ocr/config';
-import { preprocessForOcr } from './ocr/preprocess';
+import {
+  createWorker,
+  type LoggerMessage,
+} from "tesseract.js";
 
-export async function runOcr(
-  image: Blob | string,
-  options: OcrRunOptions = {},
-  config?: OcrConfig
-): Promise<OcrRunResult> {
-  const { signal, onProgress } = options;
-  assertNotAborted(signal);
+import {
+  getOcrConfig,
+  type OcrConfig,
+} from "./ocr/config";
 
-  const ocrConfig = config || getOcrConfig();
-  const preparedImage = await preprocessForOcr(image);
+import { preprocessForOcr } from "./ocr/preprocess";
 
-  const worker = await createWorker(ocrConfig.langs, undefined, {
-    workerPath: "/ocr/v7/worker.min.js",
-    corePath: "/ocr/v7/core",
-    langPath: "/ocr/v7/lang/",
-    cachePath: "/ocr/v7/cache",
-    cacheMethod: "write",
-    workerBlobURL: false,
-    gzip: true,
-    logger: (message) => handleProgress(message, onProgress),
-    errorHandler: (err) => console.error('Tesseract error:', err)
-  });
-
-  // Set PSM mode
-  await worker.setParameters({
-    tessedit_pageseg_mode: ocrConfig.psm,
-    ...(ocrConfig.whitelist ? { tessedit_char_whitelist: ocrConfig.whitelist } : {})
-  });
-
-  // ... reste identique
-}
 export interface OcrRunResult {
   text: string;
   confidence: number | null;
@@ -40,108 +17,191 @@ export interface OcrRunResult {
 
 export interface OcrRunOptions {
   signal?: AbortSignal;
-  onProgress?: (progress: number, status: string) => void;
+  onProgress?: (
+    progress: number,
+    status: string
+  ) => void;
 }
 
-function cleanOcrText(raw: string): string {
+function assertNotAborted(
+  signal?: AbortSignal
+): void {
+  if (signal?.aborted) {
+    throw new DOMException(
+      "OCR annulé",
+      "AbortError"
+    );
+  }
+}
+
+function handleProgress(
+  message: LoggerMessage,
+  onProgress?: (
+    progress: number,
+    status: string
+  ) => void
+): void {
+  const progress = Number.isFinite(
+    message.progress
+  )
+    ? Math.max(
+        0,
+        Math.min(1, message.progress)
+      )
+    : 0;
+
+  onProgress?.(
+    progress,
+    message.status ?? ""
+  );
+}
+
+function cleanOcrText(
+  raw: string
+): string {
   return raw
+    .replace(/\r\n/g, "\n")
     .split("\n")
     .filter((line) => {
       const trimmed = line.trim();
-      if (trimmed.length === 0) return true;
-      return /[\p{L}\p{N}]/u.test(trimmed);
+
+      if (!trimmed) {
+        return true;
+      }
+
+      return /[\p{L}\p{N}]/u.test(
+        trimmed
+      );
     })
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
-function assertNotAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) throw new DOMException("OCR annulé", "AbortError");
-}
-
-function handleProgress(
-  message: LoggerMessage,
-  onProgress?: (progress: number, status: string) => void,
-): void {
-  onProgress?.(Math.max(0, Math.min(1, message.progress || 0)), message.status);
-}
-
-async function prepareOcrImage(image: Blob | string): Promise<Blob> {
-  const source = image instanceof Blob
-    ? image
-    : await fetch(image).then((response) => {
-        if (!response.ok) throw new Error("L’image locale n’est pas accessible.");
-        return response.blob();
-      });
-
-  if (typeof createImageBitmap === "undefined" || typeof document === "undefined") {
-    return source;
+function getConfidence(
+  confidence: unknown
+): number | null {
+  if (
+    typeof confidence !== "number" ||
+    !Number.isFinite(confidence)
+  ) {
+    return null;
   }
 
-  const bitmap = await createImageBitmap(source);
-  try {
-    const canvas = document.createElement("canvas");
-    canvas.width = bitmap.width;
-    canvas.height = bitmap.height;
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("Le navigateur ne peut pas préparer l’image pour l’OCR.");
-
-    context.fillStyle = "#ffffff";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.drawImage(bitmap, 0, 0);
-
-    return await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob(
-        (blob) => (blob ? resolve(blob) : reject(new Error("Impossible de préparer l’image pour l’OCR."))),
-        "image/jpeg",
-        0.96,
-      );
-    });
-  } finally {
-    bitmap.close();
-  }
+  return Math.max(
+    0,
+    Math.min(100, confidence)
+  );
 }
 
-/**
- * OCR local français + anglais.
- * Les URLs sont servies par Scana depuis /public/ocr et préparées au build ;
- * le contenu de l’image n’est jamais envoyé à une API distante.
- */
 export async function runOcr(
   image: Blob | string,
   options: OcrRunOptions = {},
+  config?: OcrConfig
 ): Promise<OcrRunResult> {
-  const { signal, onProgress } = options;
+  const {
+    signal,
+    onProgress,
+  } = options;
+
   assertNotAborted(signal);
 
-  const worker = await createWorker(["fra", "eng"], undefined, {
-    workerPath: "/ocr/v7/worker.min.js",
-    corePath: "/ocr/v7/core",
-    langPath: "/ocr/v7/lang/",
-    cachePath: "/ocr/v7/cache",
-    cacheMethod: "write",
-    workerBlobURL: false,
-    gzip: true,
-    logger: (message) => handleProgress(message, onProgress),
-  });
+  const ocrConfig =
+    config ?? getOcrConfig();
 
-  const abort = () => {
+  const worker = await createWorker(
+    ocrConfig.langs,
+    undefined,
+    {
+      workerPath:
+        "/ocr/v7/worker.min.js",
+
+      corePath:
+        "/ocr/v7/core",
+
+      langPath:
+        "/ocr/v7/lang/",
+
+      cachePath:
+        "/ocr/v7/cache",
+
+      cacheMethod: "write",
+
+      workerBlobURL: false,
+
+      gzip: true,
+
+      logger: (message) =>
+        handleProgress(
+          message,
+          onProgress
+        ),
+
+      errorHandler: (error) => {
+        console.error(
+          "Tesseract error:",
+          error
+        );
+      },
+    }
+  );
+
+  const abortHandler = () => {
     void worker.terminate();
   };
-  signal?.addEventListener("abort", abort, { once: true });
+
+  signal?.addEventListener(
+    "abort",
+    abortHandler,
+    { once: true }
+  );
 
   try {
     assertNotAborted(signal);
-    const preparedImage = await prepareOcrImage(image);
-    const { data } = await worker.recognize(preparedImage, {}, { text: true });
+
+    await worker.setParameters({
+      tessedit_pageseg_mode:
+        ocrConfig.psm,
+
+      ...(ocrConfig.whitelist
+        ? {
+            tessedit_char_whitelist:
+              ocrConfig.whitelist,
+          }
+        : {}),
+    });
+
     assertNotAborted(signal);
+
+    const preparedImage =
+      await preprocessForOcr(image);
+
+    assertNotAborted(signal);
+
+    const result =
+      await worker.recognize(
+        preparedImage,
+        {},
+        { text: true }
+      );
+
+    assertNotAborted(signal);
+
     return {
-      text: cleanOcrText(data.text),
-      confidence: Number.isFinite(data.confidence) ? data.confidence : null,
+      text: cleanOcrText(
+        result.data.text ?? ""
+      ),
+
+      confidence: getConfidence(
+        result.data.confidence
+      ),
     };
   } finally {
-    signal?.removeEventListener("abort", abort);
+    signal?.removeEventListener(
+      "abort",
+      abortHandler
+    );
+
     await worker.terminate();
   }
 }
