@@ -12,10 +12,11 @@ export function useOpenCv(preload = false): { status: OpenCvStatus; errorMessage
 
   useEffect(() => {
     if (!preload || loadedRef.current) return;
-    
+
     // Préchargement silencieux
-    if ('requestIdleCallback' in window) {
-      window.requestIdleCallback(() => {
+    if (typeof (window as any).requestIdleCallback === "function") {
+      // requestIdleCallback n'est pas toujours présent dans les définitions TS
+      (window as any).requestIdleCallback(() => {
         loadOpenCv().catch(() => undefined);
       }, { timeout: 5000 });
     }
@@ -38,8 +39,10 @@ export function useOpenCv(preload = false): { status: OpenCvStatus; errorMessage
         }
       });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return { status, errorMessage };
-    }
+}
