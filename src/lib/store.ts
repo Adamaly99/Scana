@@ -31,13 +31,17 @@ export interface ScanDocument {
 interface ScanStore {
   pages: ScannedPage[];
   documents: ScanDocument[];
+
   hasHydrated: boolean;
+  hasSeenDataWarning: boolean;
 
   quality: ScanQuality;
   pageFormat: PageFormat;
 
   setQuality: (quality: ScanQuality) => void;
   setPageFormat: (format: PageFormat) => void;
+
+  setHasSeenDataWarning: () => void;
 
   addPage: (input: {
     dataUrl: string;
@@ -47,9 +51,11 @@ interface ScanStore {
   }) => Promise<string>;
 
   removePage: (id: string) => Promise<void>;
+
   setFilter: (id: string, filter: FilterType) => void;
 
   reorderPages: (fromIndex: number, toIndex: number) => void;
+
   setPageOrder: (orderedIds: string[]) => void;
 
   clearAll: () => Promise<void>;
@@ -86,7 +92,9 @@ export const useScanStore = create<ScanStore>()(
     (set, get) => ({
       pages: [],
       documents: [],
+
       hasHydrated: false,
+      hasSeenDataWarning: false,
 
       quality: "standard",
       pageFormat: "a4",
@@ -97,6 +105,12 @@ export const useScanStore = create<ScanStore>()(
 
       setPageFormat: (pageFormat) => {
         set({ pageFormat });
+      },
+
+      setHasSeenDataWarning: () => {
+        set({
+          hasSeenDataWarning: true,
+        });
       },
 
       addPage: async (input) => {
@@ -133,7 +147,12 @@ export const useScanStore = create<ScanStore>()(
       setFilter: (id, filter) => {
         set((state) => ({
           pages: state.pages.map((page) =>
-            page.id === id ? { ...page, filter } : page
+            page.id === id
+              ? {
+                  ...page,
+                  filter,
+                }
+              : page
           ),
         }));
       },
@@ -150,6 +169,7 @@ export const useScanStore = create<ScanStore>()(
           }
 
           const next = [...state.pages];
+
           const [moved] = next.splice(fromIndex, 1);
 
           if (!moved) {
@@ -176,7 +196,9 @@ export const useScanStore = create<ScanStore>()(
 
           const next = orderedIds
             .map((id) => byId.get(id))
-            .filter((page): page is ScannedPage => Boolean(page));
+            .filter(
+              (page): page is ScannedPage => Boolean(page)
+            );
 
           if (next.length !== state.pages.length) {
             return state;
@@ -192,7 +214,9 @@ export const useScanStore = create<ScanStore>()(
         const { pages } = get();
 
         if (pages.length > 0) {
-          await deleteImageBlobs(pages.map((page) => page.id));
+          await deleteImageBlobs(
+            pages.map((page) => page.id)
+          );
         }
 
         set({
@@ -201,11 +225,12 @@ export const useScanStore = create<ScanStore>()(
       },
 
       /**
-       * IMPORTANT :
-       * Les images NE SONT PAS supprimées ici.
+       * Les images ne sont PAS supprimées ici.
        *
-       * Les pages du scan temporaire deviennent simplement les pages
-       * du document sauvegardé. Les blobs restent dans IndexedDB.
+       * Les pages du scan temporaire deviennent les pages
+       * du document sauvegardé.
+       *
+       * Les blobs correspondants restent dans IndexedDB.
        */
       saveCurrentAsDocument: (name) => {
         const { pages } = get();
@@ -234,7 +259,9 @@ export const useScanStore = create<ScanStore>()(
       deleteDocument: async (id) => {
         const { documents } = get();
 
-        const document = documents.find((item) => item.id === id);
+        const document = documents.find(
+          (item) => item.id === id
+        );
 
         if (document) {
           await deleteImageBlobs(
@@ -264,7 +291,11 @@ export const useScanStore = create<ScanStore>()(
         }));
       },
 
-      setDocumentPageFilter: (documentId, pageId, filter) => {
+      setDocumentPageFilter: (
+        documentId,
+        pageId,
+        filter
+      ) => {
         set((state) => ({
           documents: state.documents.map((document) => {
             if (document.id !== documentId) {
@@ -360,6 +391,7 @@ export const useScanStore = create<ScanStore>()(
         documents: state.documents,
         quality: state.quality,
         pageFormat: state.pageFormat,
+        hasSeenDataWarning: state.hasSeenDataWarning,
       }),
 
       onRehydrateStorage: () => (state) => {
