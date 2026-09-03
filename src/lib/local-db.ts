@@ -230,12 +230,10 @@ function ocrId(pageId: string, cacheKey: string): string {
   return `${pageId}:${cacheKey}`;
 }
 
-// CORRECTION : Parenthèse fermante ajoutée ici
 function encodeOcrResult(result: Omit<LocalOcrResult, "id">): ArrayBuffer {
   return toArrayBuffer(new TextEncoder().encode(JSON.stringify(result)));
 }
 
-// AJOUT : Fonction manquante requise par store.ts
 export async function dataUrlToBlob(dataUrl: string): Promise<Blob> {
   const res = await fetch(dataUrl);
   return await res.blob();
@@ -280,4 +278,4 @@ export async function encryptForStorage(bytes: ArrayBuffer | Uint8Array): Promis
 
 export async function decryptForStorage(record: Pick<ImageRecord, "iv" | "ciphertext">): Promise<ArrayBuffer> {
   return decryptBytes(record);
-  }
+}
