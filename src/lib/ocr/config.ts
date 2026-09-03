@@ -7,6 +7,6 @@ export interface OcrConfig {
 export function getOcrConfig(): OcrConfig {
   return {
     langs: "fra+eng",
-    psm: "3", // Segmentation automatique de page complète
+    psm: "3",
   };
 }
