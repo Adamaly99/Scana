@@ -1,0 +1,47 @@
+name: Regenerate pnpm-lock.yaml
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'package.json'
+
+permissions:
+  contents: write
+
+jobs:
+  regenerate-lockfile:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Install dependencies (regenerate pnpm-lock.yaml)
+        run: pnpm install
+
+      - name: Commit and push pnpm-lock.yaml if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet pnpm-lock.yaml; then
+            git add pnpm-lock.yaml
+            git commit -m "chore(ci): regenerate pnpm-lock.yaml via workflow"
+            git push
+          else
+            echo "pnpm-lock.yaml is already up to date"
+          fi
