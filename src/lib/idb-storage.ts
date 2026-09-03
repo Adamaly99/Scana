@@ -1,21 +1,15 @@
+import { get, set, del } from "idb-keyval";
 import type { StateStorage } from "zustand/middleware";
-import {
-  deleteEncryptedState,
-  getEncryptedState,
-  setEncryptedState,
-} from "./local-db";
 
 export const idbStorage: StateStorage = {
-  getItem: async (name) => {
-    if (typeof window === "undefined") return null;
-    return getEncryptedState(name);
+  getItem: async (name: string): Promise<string | null> => {
+    const value = await get<string>(name);
+    return value ?? null;
   },
-  setItem: async (name, value) => {
-    if (typeof window === "undefined") return;
-    await setEncryptedState(name, value);
+  setItem: async (name: string, value: string): Promise<void> => {
+    await set(name, value);
   },
-  removeItem: async (name) => {
-    if (typeof window === "undefined") return;
-    await deleteEncryptedState(name);
+  removeItem: async (name: string): Promise<void> => {
+    await del(name);
   },
 };
